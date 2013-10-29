@@ -19,7 +19,7 @@ function SetupTestProject(name, file, lib)
   SetupTestGeneratorProject(name)
   SetupTestNativeProject(name)  
   SetupTestProjectsCSharp(name, file, lib)
-  SetupTestProjectsCLI(name, file, lib)
+  --SetupTestProjectsCLI(name, file, lib)
 end
 
 function SetupTestCSharp(name)
