@@ -1121,13 +1121,17 @@ namespace CppSharp.Generators.CSharp
 
         #region Virtual Tables
 
-        public void GenerateVTable(Class @class)
+        public List<VTableComponent> GetVTableMethodEntries(Class @class)
         {
             var entries = VTables.GatherVTableMethodEntries(@class);
-            entries = entries.Where(e => !e.Method.Ignore ||
+            return entries.Where(e => !e.Method.Ignore ||
                 @class.Properties.Any(p => !p.Ignore &&
                     (p.GetMethod == e.Method || p.SetMethod == e.Method))).ToList();
+        }
 
+        public void GenerateVTable(Class @class)
+        {
+            var entries = GetVTableMethodEntries(@class);
             if (entries.Count == 0)
                 return;
 
@@ -1244,6 +1248,13 @@ namespace CppSharp.Generators.CSharp
 
             WriteCloseBraceIndent();
             NewLine();
+        }
+
+        private void GenerateVTableClassSetupCall(Class @class)
+        {
+            var entries = GetVTableMethodEntries(@class);
+            if (Options.GenerateVirtualTables && @class.IsDynamic && entries.Count != 0)
+                WriteLine("SetupVTables({0});", Generator.GeneratedIdentifier("Instance"));
         }
 
         private void GenerateVTableManagedCall(Method method)
@@ -1375,8 +1386,12 @@ namespace CppSharp.Generators.CSharp
 
         public string GetVTableMethodDelegateName(Method method)
         {
-            // trim '@' (if any) because '@' is valid only as the first symbol
-            return string.Format("_{0}Delegate", GetFunctionIdentifier(method).Trim('@'));
+            var nativeId = GetFunctionNativeIdentifier(method);
+
+            // Trim '@' (if any) because '@' is valid only as the first symbol.
+            nativeId = nativeId.Trim('@');
+
+            return string.Format("_{0}Delegate", nativeId);
         }
 
         public void GenerateVTablePointers(Class @class)
@@ -1606,8 +1621,7 @@ namespace CppSharp.Generators.CSharp
                 if (ShouldGenerateClassNativeField(@class))
                 {
                     WriteLine("{0} = native;", Helpers.InstanceIdentifier);
-                    if (Options.GenerateVirtualTables && @class.IsDynamic)
-                        WriteLine("SetupVTables({0});", Generator.GeneratedIdentifier("Instance"));
+                    GenerateVTableClassSetupCall(@class);
                 }
             }
             else
@@ -1858,8 +1872,7 @@ namespace CppSharp.Generators.CSharp
                 WriteLine(");");
             }
 
-            if (Options.GenerateVirtualTables && @class.IsDynamic)
-                WriteLine("SetupVTables({0});", Generator.GeneratedIdentifier("Instance"));
+            GenerateVTableClassSetupCall(@class);
         }
 
         public void GenerateInternalFunctionCall(Function function,
