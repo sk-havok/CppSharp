@@ -4,7 +4,9 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using CppSharp.AST;
+using CppSharp.Utils;
 using Type = CppSharp.AST.Type;
 
 namespace CppSharp.Generators.CSharp
@@ -536,7 +538,7 @@ namespace CppSharp.Generators.CSharp
 
             TypePrinter.PushContext(CSharpTypePrinterContextKind.Native);
 
-            var retParam = new Parameter { QualifiedType = function.ReturnType };
+            var retParam = new Parameter { QualifiedType = function.OriginalReturnType };
             retType = retParam.CSharpType(TypePrinter);
 
             var method = function as Method;
@@ -1129,6 +1131,15 @@ namespace CppSharp.Generators.CSharp
                     (p.GetMethod == e.Method || p.SetMethod == e.Method))).ToList();
         }
 
+        public List<VTableComponent> GetUniqueVTableMethodEntries(Class @class)
+        {
+            var uniqueEntries = new OrderedSet<VTableComponent>();
+            foreach (var entry in GetVTableMethodEntries(@class))
+                uniqueEntries.Add(entry);
+
+            return uniqueEntries.ToList();
+        }
+
         public void GenerateVTable(Class @class)
         {
             var entries = GetVTableMethodEntries(@class);
@@ -1140,7 +1151,7 @@ namespace CppSharp.Generators.CSharp
             NewLine();
 
             // Generate a delegate type for each method.
-            foreach (var entry in entries)
+            foreach (var entry in GetUniqueVTableMethodEntries(@class))
             {
                 var method = entry.Method;
                 GenerateVTableMethodDelegates(@class, method);
@@ -1202,13 +1213,16 @@ namespace CppSharp.Generators.CSharp
 
             WriteLine("_Thunks = new IntPtr[{0}];", entries.Count);
 
+            var uniqueEntries = new HashSet<VTableComponent>();
+
             index = 0;
             foreach (var entry in entries)
             {
                 var method = entry.Method;
                 var delegateName = GetVTableMethodDelegateName(method);
                 var delegateInstance = delegateName + "Instance";
-                WriteLine("{0} += {1}Hook;", delegateInstance, delegateName);
+                if (uniqueEntries.Add(entry))
+                    WriteLine("{0} += {1}Hook;", delegateInstance, delegateName);
                 WriteLine("_Thunks[{0}] = Marshal.GetFunctionPointerForDelegate({1});",
                     index++, delegateInstance);
             }
@@ -1226,15 +1240,20 @@ namespace CppSharp.Generators.CSharp
             foreach (var vfptr in vftables)
             {
                 var size = vfptr.Layout.Components.Count;
-                WriteLine("var vfptr = Marshal.AllocHGlobal({0} * IntPtr.Size);", size);
-                WriteLine("_NewVTables[{0}] = vfptr;", index++);
+                WriteLine("var vfptr{0} = Marshal.AllocHGlobal({1} * IntPtr.Size);",
+                    index, size);
+                WriteLine("_NewVTables[{0}] = vfptr{0};", index);
 
                 var entryIndex = 0;
                 foreach (var entry in vfptr.Layout.Components)
                 {
-                    var offsetInBytes = VTables.GetVTableComponentIndex(@class, entry)*IntPtr.Size;
-                    WriteLine("*(IntPtr*)(vfptr + {0}) = _Thunks[{1}];", offsetInBytes, entryIndex++);
+                    var offsetInBytes = VTables.GetVTableComponentIndex(@class, entry)
+                        * IntPtr.Size;
+                    WriteLine("*(IntPtr*)(vfptr{0} + {1}) = _Thunks[{2}];", index,
+                        offsetInBytes, entryIndex++);
                 }
+
+                index++;
             }
 
             WriteCloseBraceIndent();
@@ -1250,11 +1269,21 @@ namespace CppSharp.Generators.CSharp
             NewLine();
         }
 
-        private void GenerateVTableClassSetupCall(Class @class)
+        private void GenerateVTableClassSetupCall(Class @class, bool addPointerGuard = false)
         {
             var entries = GetVTableMethodEntries(@class);
             if (Options.GenerateVirtualTables && @class.IsDynamic && entries.Count != 0)
+            {
+                // called from internal ctors which may have been passed an IntPtr.Zero
+                if (addPointerGuard)
+                {
+                    WriteLine("if ({0} != global::System.IntPtr.Zero)", Helpers.InstanceIdentifier);
+                    PushIndent();
+                }
                 WriteLine("SetupVTables({0});", Generator.GeneratedIdentifier("Instance"));
+                if (addPointerGuard)
+                    PopIndent();
+            }
         }
 
         private void GenerateVTableManagedCall(Method method)
@@ -1290,8 +1319,7 @@ namespace CppSharp.Generators.CSharp
                 marshals.Add(marshal.Context.Return);
             }
 
-            var hasReturn = !method.ReturnType.Type.IsPrimitiveType(PrimitiveType.Void)
-                && !method.HasIndirectReturnTypeParameter;
+            var hasReturn = !method.OriginalReturnType.Type.IsPrimitiveType(PrimitiveType.Void);
 
             if (hasReturn)
                 Write("var _ret = ");
@@ -1304,8 +1332,6 @@ namespace CppSharp.Generators.CSharp
             {
                 InvokeProperty(method, marshals);
             }
-
-            // TODO: Handle hidden structure return types.
 
             if (hasReturn)
             {
@@ -1324,7 +1350,7 @@ namespace CppSharp.Generators.CSharp
                 };
 
                 var marshal = new CSharpMarshalManagedToNativePrinter(ctx);
-                method.ReturnType.Visit(marshal);
+                method.OriginalReturnType.Visit(marshal);
 
                 if (!string.IsNullOrWhiteSpace(marshal.Context.SupportBefore))
                     Write(marshal.Context.SupportBefore);
@@ -1354,8 +1380,12 @@ namespace CppSharp.Generators.CSharp
         {
             PushBlock(CSharpBlockKind.VTableDelegate);
 
+            var cleanSig = method.Signature.ReplaceLineBreaks("");
+            cleanSig = Regex.Replace(cleanSig, @"\s+", " ");
+
+            WriteLine("// {0}", cleanSig);
             WriteLine("[SuppressUnmanagedCodeSecurity]");
-            WriteLine("[UnmanagedFunctionPointerAttribute(System.Runtime.InteropServices.CallingConvention.{0})]",
+            WriteLine("[UnmanagedFunctionPointerAttribute(global::System.Runtime.InteropServices.CallingConvention.{0})]",
                 Helpers.ToCSharpCallConv(method.CallingConvention));
 
             CSharpTypePrinterResult retType;
@@ -1402,8 +1432,7 @@ namespace CppSharp.Generators.CSharp
                 PushBlock(CSharpBlockKind.InternalsClassField);
 
                 WriteLine("[FieldOffset({0})]", info.VFPtrFullOffset);
-                WriteLine("public global::System.IntPtr vfptr{0};",
-                    info.VFPtrFullOffset, index++);
+                WriteLine("public global::System.IntPtr vfptr{0};", index++);
 
                 PopBlock(NewLineKind.BeforeNextBlock);
             }
@@ -1428,7 +1457,7 @@ namespace CppSharp.Generators.CSharp
             delegateName = delegateInstance + "Delegate";
             delegateRaise = delegateInstance + "RaiseInstance";
 
-            WriteLine("[UnmanagedFunctionPointerAttribute(System.Runtime.InteropServices.CallingConvention.Cdecl)]");
+            WriteLine("[UnmanagedFunctionPointerAttribute(global::System.Runtime.InteropServices.CallingConvention.Cdecl)]");
             WriteLine("delegate void {0}({1});", delegateName, args);
             WriteLine("{0} {1};", delegateName, delegateRaise);
             NewLine();
@@ -1621,7 +1650,7 @@ namespace CppSharp.Generators.CSharp
                 if (ShouldGenerateClassNativeField(@class))
                 {
                     WriteLine("{0} = native;", Helpers.InstanceIdentifier);
-                    GenerateVTableClassSetupCall(@class);
+                    GenerateVTableClassSetupCall(@class, true);
                 }
             }
             else
@@ -1700,7 +1729,7 @@ namespace CppSharp.Generators.CSharp
 
         public void GenerateMethod(Method method, Class @class)
         {
-            PushBlock(CSharpBlockKind.Method);
+            PushBlock(CSharpBlockKind.Method, method);
             GenerateDeclarationCommon(method);
 
             if (method.ExplicitInterfaceImpl == null)
@@ -2193,7 +2222,7 @@ namespace CppSharp.Generators.CSharp
             else if (typedef.Type.IsPointerTo(out functionType))
             {
                 PushBlock(CSharpBlockKind.Typedef);
-                WriteLine("[UnmanagedFunctionPointerAttribute(System.Runtime.InteropServices.CallingConvention.{0})]",
+                WriteLine("[UnmanagedFunctionPointerAttribute(global::System.Runtime.InteropServices.CallingConvention.{0})]",
                     Helpers.ToCSharpCallConv(functionType.CallingConvention));
                 TypePrinter.PushContext(CSharpTypePrinterContextKind.Native);
                 WriteLine("{0}unsafe {1};",
@@ -2283,7 +2312,7 @@ namespace CppSharp.Generators.CSharp
             var index = overloads.IndexOf(function);
 
             if (index >= 0)
-                identifier += index.ToString(CultureInfo.InvariantCulture);
+                identifier += "_" + index.ToString(CultureInfo.InvariantCulture);
 
             return identifier;
         }
@@ -2322,7 +2351,7 @@ namespace CppSharp.Generators.CSharp
             Write("[DllImport(\"{0}\", ", libName);
 
             var callConv = Helpers.ToCSharpCallConv(function.CallingConvention);
-            WriteLine("CallingConvention = System.Runtime.InteropServices.CallingConvention.{0},",
+            WriteLine("CallingConvention = global::System.Runtime.InteropServices.CallingConvention.{0},",
                 callConv);
 
             WriteLineIndent("EntryPoint=\"{0}\")]", function.Mangled);
