@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Web.Util;
 using CppSharp.AST;
 using CppSharp.Utils;
 using Type = CppSharp.AST.Type;
@@ -282,7 +283,7 @@ namespace CppSharp.Generators.CSharp
             if (decl.Comment == null)
                 return;
 
-            GenerateSummary(decl.Comment.BriefText);
+            GenerateComment(decl.Comment);
             GenerateDebug(decl);
         }
 
@@ -292,21 +293,32 @@ namespace CppSharp.Generators.CSharp
                 WriteLine("// DEBUG: " + decl.DebugText);
         }
 
-        public void GenerateSummary(string comment)
+        public void GenerateComment(RawComment comment)
         {
-            if (String.IsNullOrWhiteSpace(comment))
+            if (string.IsNullOrWhiteSpace(comment.BriefText))
                 return;
 
             PushBlock(BlockKind.BlockComment);
             WriteLine("/// <summary>");
-            WriteLine("/// {0}", comment);
+            foreach (string line in HtmlEncoder.HtmlEncode(comment.BriefText).Split(
+                                        Environment.NewLine.ToCharArray()))
+                WriteLine("/// <para>{0}</para>", line);
             WriteLine("/// </summary>");
+
+            if (!string.IsNullOrWhiteSpace(comment.Text))
+            {
+                WriteLine("/// <remarks>");
+                foreach (string line in HtmlEncoder.HtmlEncode(comment.Text).Split(
+                                            Environment.NewLine.ToCharArray()))
+                    WriteLine("/// <para>{0}</para>", line);
+                WriteLine("/// </remarks>");
+            }
             PopBlock();
         }
 
         public void GenerateInlineSummary(string comment)
         {
-            if (String.IsNullOrWhiteSpace(comment))
+            if (string.IsNullOrWhiteSpace(comment))
                 return;
 
             PushBlock(BlockKind.InlineComment);
@@ -1127,8 +1139,7 @@ namespace CppSharp.Generators.CSharp
         {
             var entries = VTables.GatherVTableMethodEntries(@class);
             return entries.Where(e => !e.Method.Ignore ||
-                @class.Properties.Any(p => !p.Ignore &&
-                    (p.GetMethod == e.Method || p.SetMethod == e.Method))).ToList();
+                @class.GetPropertyByConstituentMethod(e.Method) != null).ToList();
         }
 
         public List<VTableComponent> GetUniqueVTableMethodEntries(Class @class)
@@ -1324,13 +1335,15 @@ namespace CppSharp.Generators.CSharp
             if (hasReturn)
                 Write("var _ret = ");
 
-            if (method.IsGenerated)
+            // HACK: because of the non-shared v-table entries bug we must look for the real method by name
+            Method m = ((Class) method.Namespace).GetMethodByName(method.Name);
+            if (m.IsGenerated)
             {
                 WriteLine("target.{0}({1});", SafeIdentifier(method.Name), string.Join(", ", marshals));              
             }
             else
             {
-                InvokeProperty(method, marshals);
+                InvokeProperty(m, marshals);
             }
 
             if (hasReturn)
@@ -1846,7 +1859,7 @@ namespace CppSharp.Generators.CSharp
             GenerateFunctionCall(delegateId, method.Parameters, method);
         }
 
-        public static string GetVirtualCallDelegate(INamedDecl method, Class @class,
+        public static string GetVirtualCallDelegate(Function method, Class @class,
             bool is32Bit, out string delegateId)
         {
             var virtualCallBuilder = new StringBuilder();
@@ -1860,7 +1873,7 @@ namespace CppSharp.Generators.CSharp
                 "void* slot = *((void**) vtable + {0} * {1});", i, is32Bit ? 4 : 8);
             virtualCallBuilder.AppendLine();
 
-            string @delegate = method.Name + "Delegate";
+            string @delegate = ASTHelpers.GetDelegateName(method);
             delegateId = Generator.GeneratedIdentifier(@delegate);
 
             virtualCallBuilder.AppendFormat(

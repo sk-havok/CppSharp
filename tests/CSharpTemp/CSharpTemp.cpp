@@ -31,6 +31,16 @@ const Foo& Bar::operator[](int i) const
     return m_foo;
 }
 
+Qux::Qux()
+{
+
+}
+
+Qux::Qux(Foo foo)
+{
+
+}
+
 int Qux::farAwayFunc() const
 {
     return 20;
@@ -100,6 +110,11 @@ void AbstractProprietor::setProp(long property)
     m_property = property;
 }
 
+int AbstractProprietor::parent()
+{
+    return 0;
+}
+
 void Proprietor::setValue(int value)
 {
     m_value = value;
@@ -133,4 +148,9 @@ ComplexType P::complexType()
 void P::setComplexType(const ComplexType& value)
 {
     m_complexType = value;
+}
+
+void P::parent(int i)
+{
+
 }

@@ -21,6 +21,8 @@ protected:
 class DLL_API Qux
 {
 public:
+    Qux();
+    Qux(Foo foo);
     int farAwayFunc() const;
     int array[3];
 };
@@ -78,6 +80,8 @@ public:
     virtual long prop() = 0;
     virtual void setProp(long prop);
 
+    virtual int parent();
+
 protected:
     int m_value;
     long m_property;
@@ -105,6 +109,8 @@ public:
 
     ComplexType complexType();
     void setComplexType(const ComplexType& value);
+
+    virtual void parent(int i);
 
 private:
     ComplexType m_complexType;
