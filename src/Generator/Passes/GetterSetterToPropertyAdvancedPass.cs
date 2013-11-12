@@ -93,15 +93,13 @@ namespace CppSharp.Passes
                     string afterSet = nameBuilder.ToString();
                     foreach (var getter in nonSetters.Where(m => m.Namespace == type))
                     {
-                        string name = GetPropertyName(getter.Name);
-                        if (string.Compare(name, afterSet, StringComparison.OrdinalIgnoreCase) == 0 &&
+                        var name = GetReadWritePropertyName(getter, afterSet);
+                        if (name == afterSet &&
                             GetUnderlyingType(getter.OriginalReturnType).Equals(
                                 GetUnderlyingType(setter.Parameters[0].QualifiedType)) &&
-                            !type.Methods.Any(
-                                m =>
-                                    m != getter &&
-                                    string.Compare(name, m.Name, StringComparison.OrdinalIgnoreCase) == 0))
+                            !type.Methods.Any(m => m != getter && name == m.Name))
                         {
+                            getter.Name = name;
                             GenerateProperty(getter.Namespace, getter, readOnly ? null : setter);
                             goto next;
                         }
@@ -134,6 +132,16 @@ namespace CppSharp.Passes
             }
         }
 
+        private static string GetReadWritePropertyName(INamedDecl getter, string afterSet)
+        {
+            string name = GetPropertyName(getter.Name);
+            if (name != afterSet && name.StartsWith("is"))
+            {
+                name = char.ToLowerInvariant(name[2]) + name.Substring(3);
+            }
+            return name;
+        }
+
         private static Type GetUnderlyingType(QualifiedType type)
         {
             TagType tagType = type.Type as TagType;
@@ -149,9 +157,8 @@ namespace CppSharp.Passes
         private static void GenerateProperty(DeclarationContext context, Method getter, Method setter = null)
         {
             Class type = (Class) context;
-            if (type.Properties.All(
-                p => string.Compare(getter.Name, p.Name, StringComparison.OrdinalIgnoreCase) != 0 ||
-                     p.ExplicitInterfaceImpl != getter.ExplicitInterfaceImpl))
+            if (type.Properties.All(p => getter.Name != p.Name ||
+                    p.ExplicitInterfaceImpl != getter.ExplicitInterfaceImpl))
             {
                 Property property = new Property();
                 property.Name = GetPropertyName(getter.Name);
@@ -162,9 +169,6 @@ namespace CppSharp.Passes
                     Property baseVirtualProperty = type.GetRootBaseProperty(property);
                     if (baseVirtualProperty.SetMethod == null)
                         setter = null;
-                    foreach (Method method in type.Methods.Where(m => m.Name == property.Name &&
-                        m.Parameters.Any(p => p.Kind != ParameterKind.IndirectReturnType)))
-                        method.Name = "get" + method.Name;
                 }
                 property.GetMethod = getter;
                 property.SetMethod = setter;

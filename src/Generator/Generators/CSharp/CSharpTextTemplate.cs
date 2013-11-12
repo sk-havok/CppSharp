@@ -1071,6 +1071,7 @@ namespace CppSharp.Generators.CSharp
                 if (prop.Parameters.Count > 0 && prop.Type.IsPointerToPrimitiveType())
                     type = ((PointerType) prop.Type).Pointee;
 
+                GenerateDeclarationCommon(prop);
                 if (prop.ExplicitInterfaceImpl == null)
                 {
                     Write(Helpers.GetAccess(prop.Access));
@@ -2339,7 +2340,6 @@ namespace CppSharp.Generators.CSharp
                 function = function.OriginalFunction;
 
             PushBlock(CSharpBlockKind.InternalsClassMethod);
-            GenerateDeclarationCommon(function);
             WriteLine("[SuppressUnmanagedCodeSecurity]");
 
             string libName = Options.SharedLibraryName;
@@ -2409,7 +2409,7 @@ namespace CppSharp.Generators.CSharp
                     @params.Add("int " + GeneratedIdentifier("forBases"));
             }
 
-            WriteLine("public static extern {0} {1}({2});", retType,
+            WriteLine("internal static extern {0} {1}({2});", retType,
                       GetFunctionNativeIdentifier(function),
                       string.Join(", ", @params));
             PopBlock(NewLineKind.BeforeNextBlock);

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using CppSharp.AST;
 using Type = CppSharp.AST.Type;
 
@@ -10,6 +11,8 @@ namespace CppSharp.Types
         public CppTypePrinter(ITypeMapDatabase database)
         {
         }
+
+        public bool PrintLocalName { get; set; }
 
         public string VisitTagType(TagType tag, TypeQualifiers quals)
         {
@@ -106,6 +109,8 @@ namespace CppSharp.Types
 
         public string VisitTypedefType(TypedefType typedef, TypeQualifiers quals)
         {
+            if (PrintLocalName)
+                return typedef.Declaration.OriginalName;
             return "::" + typedef.Declaration.QualifiedOriginalName;
         }
 
@@ -116,8 +121,11 @@ namespace CppSharp.Types
 
         public string VisitTemplateSpecializationType(TemplateSpecializationType template, TypeQualifiers quals)
         {
-            var decl = template.Template.TemplatedDecl;
-            return decl.Visit(this);
+            return string.Format("{0}<{1}>", template.Template.TemplatedDecl.Visit(this),
+                string.Join(", ",
+                template.Arguments.Where(
+                    a => a.Type.Type != null &&
+                        !(a.Type.Type is DependentNameType)).Select(a => a.Type.Visit(this))));
         }
 
         public string VisitTemplateParameterType(TemplateParameterType param, TypeQualifiers quals)
@@ -205,6 +213,8 @@ namespace CppSharp.Types
 
         public string VisitClassDecl(Class @class)
         {
+            if (PrintLocalName)
+                return @class.OriginalName;
             return string.Format("::{0}", @class.QualifiedOriginalName);
         }
 
@@ -235,6 +245,8 @@ namespace CppSharp.Types
 
         public string VisitEnumDecl(Enumeration @enum)
         {
+            if (PrintLocalName)
+                return @enum.OriginalName;
             return string.Format("::{0}", @enum.QualifiedOriginalName);
         }
 
