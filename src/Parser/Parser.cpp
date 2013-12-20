@@ -36,7 +36,6 @@
 Parser::Parser(ParserOptions^ Opts)
     : Opts(Opts)
     , Lib(Opts->ASTContext)
-    , Symbols(Opts->SymbolsContext)
     , Index(0)
 {
 }
@@ -494,7 +493,7 @@ void Parser::WalkVTable(clang::CXXRecordDecl* RD, CppSharp::AST::Class^ C)
     case TargetCXXABI::Microsoft:
     {
         C->Layout->ABI = CppSharp::AST::CppAbi::Microsoft;
-        MicrosoftVFTableContext VTContext(*AST);
+        MicrosoftVTableContext VTContext(*AST);
 
         auto VFPtrs = VTContext.getVFPtrOffsets(RD);
         for (auto I = VFPtrs.begin(), E = VFPtrs.end(); I != E; ++I)
@@ -527,44 +526,11 @@ void Parser::WalkVTable(clang::CXXRecordDecl* RD, CppSharp::AST::Class^ C)
     }
 }
 
-CppSharp::AST::Class^ Parser::WalkRecordCXX(clang::CXXRecordDecl* Record)
+void Parser::WalkRecordCXX(clang::CXXRecordDecl* Record,
+                          CppSharp::AST::Class^ RC)
 {
     using namespace clang;
     using namespace clix;
-
-    if (Record->isInjectedClassName())
-        return nullptr;
-
-    auto NS = GetNamespace(Record);
-    assert(NS && "Expected a valid namespace");
-
-    bool isCompleteDefinition = Record->isCompleteDefinition();
-
-    CppSharp::AST::Class^ RC = nullptr;
-
-    auto Name = marshalString<E_UTF8>(GetTagDeclName(Record));
-    auto HasEmptyName = Record->getDeclName().isEmpty();
-
-    if (HasEmptyName)
-    {
-        if (auto AR = NS->FindAnonymous((uint64_t)Record))
-            RC = safe_cast<CppSharp::AST::Class^>(AR);
-    }
-    else
-    {
-        RC = NS->FindClass(Name, isCompleteDefinition, /*Create=*/false);
-    }
-
-    if (RC)
-        return RC;
-
-    RC = NS->FindClass(Name, isCompleteDefinition, /*Create=*/true);
-
-    if (HasEmptyName)
-        NS->Anonymous[(uint64_t)Record] = RC;
-
-    if (!isCompleteDefinition)
-        return RC;
 
     auto headStartLoc = GetDeclStartLocation(C.get(), Record);
     auto headEndLoc = Record->getLocation(); // identifier location
@@ -617,7 +583,6 @@ CppSharp::AST::Class^ Parser::WalkRecordCXX(clang::CXXRecordDecl* Record)
         {
             auto MD = cast<CXXMethodDecl>(D);
             auto Method = WalkMethodCXX(MD);
-            HandleDeclaration(MD, Method);
             Method->AccessDecl = AccessDecl;
             break;
         }
@@ -629,8 +594,6 @@ CppSharp::AST::Class^ Parser::WalkRecordCXX(clang::CXXRecordDecl* Record)
             if (Layout)
                 Field->Offset = Layout->getFieldOffset(FD->getFieldIndex());
 
-            HandleDeclaration(FD, Field);
-            RC->Fields->Add(Field);
             break;
         }
         case Decl::AccessSpec:
@@ -638,14 +601,11 @@ CppSharp::AST::Class^ Parser::WalkRecordCXX(clang::CXXRecordDecl* Record)
             AccessSpecDecl* AS = cast<AccessSpecDecl>(D);
 
             AccessDecl = gcnew CppSharp::AST::AccessSpecifierDecl();
+            HandleDeclaration(AS, AccessDecl);
+
             AccessDecl->Access = ConvertToAccess(AS->getAccess());
             AccessDecl->Namespace = RC;
 
-            auto startLoc = GetDeclStartLocation(C.get(), AS);
-            auto range = SourceRange(startLoc, AS->getColonLoc());
-            HandlePreprocessedEntities(AccessDecl, range,
-                CppSharp::AST::MacroLocation::Unknown);
-            HandleDeclaration(AS, AccessDecl);
             RC->Specifiers->Add(AccessDecl);
             break;
         }
@@ -674,8 +634,132 @@ CppSharp::AST::Class^ Parser::WalkRecordCXX(clang::CXXRecordDecl* Record)
     // Process the vtables
     if (hasLayout && Record->isDynamicClass())
         WalkVTable(Record, RC);
+}
+
+CppSharp::AST::Class^ Parser::WalkRecordCXX(clang::CXXRecordDecl* Record)
+{
+    using namespace clang;
+    using namespace clix;
+
+    if (Record->isInjectedClassName())
+        return nullptr;
+
+    auto NS = GetNamespace(Record);
+    assert(NS && "Expected a valid namespace");
+
+    bool isCompleteDefinition = Record->isCompleteDefinition();
+
+    CppSharp::AST::Class^ RC = nullptr;
+
+    auto Name = marshalString<E_UTF8>(GetTagDeclName(Record));
+    auto HasEmptyName = Record->getDeclName().isEmpty();
+
+    if (HasEmptyName)
+    {
+        if (auto AR = NS->FindAnonymous((uint64_t)Record))
+            RC = safe_cast<CppSharp::AST::Class^>(AR);
+    }
+    else
+    {
+        RC = NS->FindClass(Name, isCompleteDefinition, /*Create=*/false);
+    }
+
+    if (RC)
+        return RC;
+
+    RC = NS->FindClass(Name, isCompleteDefinition, /*Create=*/true);
+    HandleDeclaration(Record, RC);
+
+    if (HasEmptyName)
+        NS->Anonymous[(uint64_t)Record] = RC;
+
+    if (!isCompleteDefinition)
+        return RC;
+
+    WalkRecordCXX(Record, RC);
 
     return RC;
+}
+
+//-----------------------------------//
+
+static CppSharp::AST::TemplateSpecializationKind
+WalkTemplateSpecializationKind(clang::TemplateSpecializationKind Kind)
+{
+    using namespace clang;
+    switch(Kind)
+    {
+    case TSK_Undeclared:
+        return CppSharp::AST::TemplateSpecializationKind::Undeclared;
+    case TSK_ImplicitInstantiation:
+        return CppSharp::AST::TemplateSpecializationKind::ImplicitInstantiation;
+    case TSK_ExplicitSpecialization:
+        return CppSharp::AST::TemplateSpecializationKind::ExplicitSpecialization;
+    case TSK_ExplicitInstantiationDeclaration:
+        return CppSharp::AST::TemplateSpecializationKind::ExplicitInstantiationDeclaration;
+    case TSK_ExplicitInstantiationDefinition:
+        return CppSharp::AST::TemplateSpecializationKind::ExplicitInstantiationDefinition;
+    }
+}
+
+CppSharp::AST::ClassTemplateSpecialization^
+Parser::WalkClassTemplateSpecialization(clang::ClassTemplateSpecializationDecl* CTS)
+{
+    auto CT = WalkClassTemplate(CTS->getSpecializedTemplate());
+    auto Spec = CT->FindSpecialization(System::IntPtr(CTS));
+    if (Spec != nullptr)
+        return Spec;
+
+    auto TS = gcnew CppSharp::AST::ClassTemplateSpecialization();
+    HandleDeclaration(CTS, TS);
+
+    TS->Name = clix::marshalString<clix::E_UTF8>(CTS->getName());
+
+    auto NS = GetNamespace(CTS);
+    assert(NS && "Expected a valid namespace");
+    TS->Namespace = NS;
+
+    TS->TemplatedDecl = CT;
+    TS->SpecializationKind = WalkTemplateSpecializationKind(CTS->getSpecializationKind());
+    CT->Specializations->Add(TS);
+
+    // TODO: Parse the template argument list
+
+    if (CTS->isCompleteDefinition())
+        WalkRecordCXX(CTS, TS);
+
+    return TS;
+}
+
+//-----------------------------------//
+
+CppSharp::AST::ClassTemplatePartialSpecialization^
+Parser::WalkClassTemplatePartialSpecialization(clang::ClassTemplatePartialSpecializationDecl* CTS)
+{
+    auto CT = WalkClassTemplate(CTS->getSpecializedTemplate());
+    auto Spec = CT->FindPartialSpecialization(System::IntPtr(CTS));
+    if (Spec != nullptr)
+        return Spec;
+
+    auto TS = gcnew CppSharp::AST::ClassTemplatePartialSpecialization();
+    HandleDeclaration(CTS, TS);
+
+    TS->Name = clix::marshalString<clix::E_UTF8>(CTS->getName());
+
+    auto NS = GetNamespace(CTS);
+    assert(NS && "Expected a valid namespace");
+    TS->Namespace = NS;
+
+    TS->TemplatedDecl = CT;
+    TS->SpecializationKind = WalkTemplateSpecializationKind(CTS->getSpecializationKind());
+    CT->Specializations->Add(TS);
+
+    // TODO: Parse the template argument list
+
+    if (CTS->isCompleteDefinition())
+        WalkRecordCXX(CTS, TS);
+
+    return TS;
 }
 
 //-----------------------------------//
@@ -685,8 +769,20 @@ CppSharp::AST::ClassTemplate^ Parser::WalkClassTemplate(clang::ClassTemplateDecl
     using namespace clang;
     using namespace clix;
 
-    auto Class = WalkRecordCXX(TD->getTemplatedDecl());
-    CppSharp::AST::ClassTemplate^ CT = gcnew CppSharp::AST::ClassTemplate(Class);
+    auto NS = GetNamespace(TD);
+    assert(NS && "Expected a valid namespace");
+
+    auto CT = NS->FindClassTemplate(System::IntPtr(TD));
+    if (CT != nullptr)
+        return CT;
+
+    CT = gcnew CppSharp::AST::ClassTemplate();
+    HandleDeclaration(TD, CT);
+
+    CT->Namespace = NS;
+    NS->Templates->Add(CT);
+    
+    CT->TemplatedDecl = WalkRecordCXX(TD->getTemplatedDecl());
 
     auto TPL = TD->getTemplateParameters();
     for(auto it = TPL->begin(); it != TPL->end(); ++it)
@@ -709,9 +805,21 @@ CppSharp::AST::FunctionTemplate^ Parser::WalkFunctionTemplate(clang::FunctionTem
     using namespace clang;
     using namespace clix;
 
+    auto NS = GetNamespace(TD);
+    assert(NS && "Expected a valid namespace");
+
+    auto FT = NS->FindFunctionTemplate(System::IntPtr(TD));
+    if (FT != nullptr)
+        return FT;
+
     auto Function = WalkFunction(TD->getTemplatedDecl(), /*IsDependent=*/true,
         /*AddToNamespace=*/false);
-    CppSharp::AST::FunctionTemplate^ FT = gcnew CppSharp::AST::FunctionTemplate(Function);
+
+    FT = gcnew CppSharp::AST::FunctionTemplate(Function);
+    HandleDeclaration(TD, FT);
+
+    FT->Namespace = NS;
+    FT->TemplatedDecl = Function;
 
     auto TPL = TD->getTemplateParameters();
     for(auto it = TPL->begin(); it != TPL->end(); ++it)
@@ -723,6 +831,8 @@ CppSharp::AST::FunctionTemplate^ Parser::WalkFunctionTemplate(clang::FunctionTem
 
         FT->Parameters->Add(TP);
     }
+
+    NS->Templates->Add(FT);
 
     return FT;
 }
@@ -781,7 +891,9 @@ CppSharp::AST::Method^ Parser::WalkMethodCXX(clang::CXXMethodDecl* MD)
         return WalkMethodCXX(cast<CXXMethodDecl>(MD->getPrimaryContext()));
 
     auto RD = MD->getParent();
-    auto Class = WalkRecordCXX(RD);
+    auto Decl = WalkDeclaration(RD, /*IgnoreSystemDecls=*/false);
+
+    auto Class = safe_cast<CppSharp::AST::Class^>(Decl);
 
     // Check for an already existing method that came from the same declaration.
     for each (CppSharp::AST::Method^ Method in Class->Methods)
@@ -793,6 +905,8 @@ CppSharp::AST::Method^ Parser::WalkMethodCXX(clang::CXXMethodDecl* MD)
     DeclarationName Name = MD->getDeclName();
 
     CppSharp::AST::Method^ Method = gcnew CppSharp::AST::Method();
+    HandleDeclaration(MD, Method);
+
     Method->Access = ConvertToAccess(MD->getAccess());
     Method->IsStatic = MD->isStatic();
     Method->IsVirtual = MD->isVirtual();
@@ -814,6 +928,10 @@ CppSharp::AST::Method^ Parser::WalkMethodCXX(clang::CXXMethodDecl* MD)
     }
     else if (const CXXConversionDecl* CD = dyn_cast<CXXConversionDecl>(MD))
     {
+        auto TL = MD->getTypeSourceInfo()->getTypeLoc().castAs<FunctionTypeLoc>();
+        auto RTL = TL.getResultLoc();
+        auto ConvTy = WalkType(CD->getConversionType(), &RTL);
+        Method->ConversionType = GetQualifiedType(CD->getConversionType(), ConvTy);
     }
 
     Class->Methods->Add(Method);
@@ -829,15 +947,16 @@ CppSharp::AST::Field^ Parser::WalkFieldCXX(clang::FieldDecl* FD, CppSharp::AST::
     using namespace clix;
 
     CppSharp::AST::Field^ F = gcnew CppSharp::AST::Field();
-    F->Namespace = Class;
+    HandleDeclaration(FD, F);
 
+    F->Namespace = Class;
     F->Name = marshalString<E_UTF8>(FD->getName());
     auto TL = FD->getTypeSourceInfo()->getTypeLoc();
     F->QualifiedType = GetQualifiedType(FD->getType(), WalkType(FD->getType(), &TL));
     F->Access = ConvertToAccess(FD->getAccess());
     F->Class = Class;
 
-    HandleComments(FD, F);
+    Class->Fields->Add(F);
 
     return F;
 }
@@ -947,10 +1066,15 @@ CppSharp::AST::DeclarationContext^ Parser::GetNamespace(clang::Decl* D,
             continue;
         }
         case Decl::ClassTemplateSpecialization:
+        {
+            auto CTSpec = cast<ClassTemplateSpecializationDecl>(Ctx);
+            DC = WalkClassTemplateSpecialization(CTSpec);
+            continue;
+        }
         case Decl::ClassTemplatePartialSpecialization:
         {
-            // FIXME: Ignore ClassTemplateSpecialization namespaces...
-            // We might be able to translate these to C# nested types.
+            auto CTPSpec = cast<ClassTemplatePartialSpecializationDecl>(Ctx);
+            DC = WalkClassTemplatePartialSpecialization(CTPSpec);
             continue;
         }
         default:
@@ -1068,6 +1192,13 @@ static CppSharp::AST::CallingConvention ConvertCallConv(clang::CallingConv CC)
     return CppSharp::AST::CallingConvention::Default;
 }
 
+CppSharp::AST::QualifiedType^ Parser::WalkQualifiedType(clang::TypeSourceInfo* TSI)
+{
+    auto TL = TSI->getTypeLoc();
+    auto Ty = WalkType(TSI->getType(), &TL);
+    return GetQualifiedType(TSI->getType(), Ty);
+}
+
 CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* TL,
     bool DesugarType)
 {
@@ -1086,9 +1217,30 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         Type = Desugared.getTypePtr();
     }
 
+    CppSharp::AST::Type^ Ty = nullptr;
+
     assert(Type && "Expected a valid type");
     switch(Type->getTypeClass())
     {
+    case Type::Attributed:
+    {
+        auto Attributed = Type->getAs<clang::AttributedType>();
+        assert(Attributed && "Expected an attributed type");
+
+        TypeLoc Next;
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
+
+        auto AT = gcnew CppSharp::AST::AttributedType();
+
+        auto Modified = Attributed->getModifiedType();
+        AT->Modified = GetQualifiedType(Modified, WalkType(Modified, &Next));
+
+        auto Equivalent = Attributed->getEquivalentType();
+        AT->Equivalent = GetQualifiedType(Equivalent, WalkType(Equivalent, &Next));
+
+        Ty = AT;
+        break;
+    }
     case Type::Builtin:
     {
         auto Builtin = Type->getAs<clang::BuiltinType>();
@@ -1097,7 +1249,8 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         auto BT = gcnew CppSharp::AST::BuiltinType();
         BT->Type = WalkBuiltinType(Builtin);
         
-        return BT;
+        Ty = BT;
+        break;
     }
     case Type::Enum:
     {
@@ -1107,7 +1260,8 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         auto TT = gcnew CppSharp::AST::TagType();
         TT->Declaration = TT->Declaration = WalkDeclaration(ED, /*IgnoreSystemDecls=*/false);
 
-        return TT;
+        Ty = TT;
+        break;
     }
     case Type::Pointer:
     {
@@ -1117,12 +1271,13 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         P->Modifier = CppSharp::AST::PointerType::TypeModifier::Pointer;
 
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
 
         auto Pointee = Pointer->getPointeeType();
         P->QualifiedPointee = GetQualifiedType(Pointee, WalkType(Pointee, &Next));
 
-        return P;
+        Ty = P;
+        break;
     }
     case Type::Typedef:
     {
@@ -1136,27 +1291,33 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         auto Type = gcnew CppSharp::AST::TypedefType();
         Type->Declaration = TDD;
 
-        return Type;
+        Ty = Type;
+        break;
     }
     case Type::Decayed:
     {
         auto DT = Type->getAs<clang::DecayedType>();
+
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
 
         auto Type = gcnew CppSharp::AST::DecayedType();
         Type->Decayed = GetQualifiedType(DT->getDecayedType(), WalkType(DT->getDecayedType(), &Next));
         Type->Original = GetQualifiedType(DT->getOriginalType(), WalkType(DT->getOriginalType(), &Next));
         Type->Pointee = GetQualifiedType(DT->getPointeeType(), WalkType(DT->getPointeeType(), &Next));
 
-        return Type;
+        Ty = Type;
+        break;
     }
     case Type::Elaborated:
     {
         auto ET = Type->getAs<clang::ElaboratedType>();
+
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
-        return WalkType(ET->getNamedType(), &Next);
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
+
+        Ty = WalkType(ET->getNamedType(), &Next);
+        break;
     }
     case Type::Record:
     {
@@ -1166,59 +1327,74 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         auto TT = gcnew CppSharp::AST::TagType();
         TT->Declaration = WalkDeclaration(RD, /*IgnoreSystemDecls=*/false);
 
-        return TT;
+        Ty = TT;
+        break;
     }
     case Type::Paren:
     {
         auto PT = Type->getAs<clang::ParenType>();
+
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
-        return WalkType(PT->getInnerType(), &Next);
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
+
+        Ty = WalkType(PT->getInnerType(), &Next);
+        break;
     }
     case Type::ConstantArray:
     {
         auto AT = AST->getAsConstantArrayType(QualType);
 
-        auto A = gcnew CppSharp::AST::ArrayType();
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
+
+        auto A = gcnew CppSharp::AST::ArrayType();
         A->Type = WalkType(AT->getElementType(), &Next);
         A->SizeType = CppSharp::AST::ArrayType::ArraySize::Constant;
         A->Size = AST->getConstantArrayElementCount(AT);
 
-        return A;
+        Ty = A;
+        break;
     }
     case Type::IncompleteArray:
     {
         auto AT = AST->getAsIncompleteArrayType(QualType);
 
-        auto A = gcnew CppSharp::AST::ArrayType();
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
+
+        auto A = gcnew CppSharp::AST::ArrayType();
         A->Type = WalkType(AT->getElementType(), &Next);
         A->SizeType = CppSharp::AST::ArrayType::ArraySize::Incomplete;
 
-        return A;
+        Ty = A;
+        break;
     }
     case Type::DependentSizedArray:
     {
         auto AT = AST->getAsDependentSizedArrayType(QualType);
 
-        auto A = gcnew CppSharp::AST::ArrayType();
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
+
+        auto A = gcnew CppSharp::AST::ArrayType();
         A->Type = WalkType(AT->getElementType(), &Next);
         A->SizeType = CppSharp::AST::ArrayType::ArraySize::Dependent;
         //A->Size = AT->getSizeExpr();
 
-        return A;
+        Ty = A;
+        break;
     }
     case Type::FunctionProto:
     {
         auto FP = Type->getAs<clang::FunctionProtoType>();
 
-        auto FTL = TL->getAs<FunctionProtoTypeLoc>();
-        auto RL = FTL.getResultLoc();
+        FunctionProtoTypeLoc FTL;
+        TypeLoc RL;
+        if (TL && !TL->isNull())
+        {
+            FTL = TL->getAs<FunctionProtoTypeLoc>();
+            RL = FTL.getResultLoc();
+        }
 
         auto F = gcnew CppSharp::AST::FunctionType();
         F->ReturnType = GetQualifiedType(FP->getResultType(),
@@ -1228,38 +1404,54 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         for (unsigned i = 0; i < FP->getNumArgs(); ++i)
         {
             auto FA = gcnew CppSharp::AST::Parameter();
+            if (FTL)
+            {
+                auto PVD = FTL.getArg(i);
 
-            auto PVD = FTL.getArg(i);
-            auto PTL = PVD->getTypeSourceInfo()->getTypeLoc();
+                HandleDeclaration(PVD, FA);
 
-            FA->Name = marshalString<E_UTF8>(PVD->getNameAsString());
-            FA->QualifiedType = GetQualifiedType(PVD->getType(), WalkType(PVD->getType(), &PTL));
+                auto PTL = PVD->getTypeSourceInfo()->getTypeLoc();
 
+                FA->Name = marshalString<E_UTF8>(PVD->getNameAsString());
+                FA->QualifiedType = GetQualifiedType(PVD->getType(), WalkType(PVD->getType(), &PTL));
+            }
+            else
+            {
+                auto Arg = FP->getArgType(i);
+                FA->Name = "";
+                FA->QualifiedType = GetQualifiedType(Arg, WalkType(Arg));
+            }
             F->Parameters->Add(FA);
         }
 
-        return F;
+        Ty = F;
+        break;
     }
     case Type::TypeOf:
     {
         auto TO = Type->getAs<clang::TypeOfType>();
-        return WalkType(TO->getUnderlyingType());
+
+        Ty = WalkType(TO->getUnderlyingType());
+        break;
     }
     case Type::TypeOfExpr:
     {
         auto TO = Type->getAs<clang::TypeOfExprType>();
-        return WalkType(TO->getUnderlyingExpr()->getType());
+
+        Ty = WalkType(TO->getUnderlyingExpr()->getType());
+        break;
     }
     case Type::MemberPointer:
     {
         auto MP = Type->getAs<clang::MemberPointerType>();
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
 
         auto MPT = gcnew CppSharp::AST::MemberPointerType();
         MPT->Pointee = WalkType(MP->getPointeeType(), &Next);
         
-        return MPT;
+        Ty = MPT;
+        break;
     }
     case Type::TemplateSpecialization:
     {
@@ -1336,7 +1528,8 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
             TST->Arguments->Add(Arg);
         }
 
-        return TST;
+        Ty = TST;
+        break;
     }
     case Type::TemplateTypeParm:
     {
@@ -1347,19 +1540,22 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         if (auto Ident = TP->getIdentifier())
             TPT->Parameter.Name = marshalString<E_UTF8>(Ident->getName());
 
-        return TPT;
+        Ty = TPT;
+        break;
     }
     case Type::SubstTemplateTypeParm:
     {
         auto TP = Type->getAs<SubstTemplateTypeParmType>();
-        auto Ty = TP->getReplacementType();
         auto TPT = gcnew CppSharp::AST::TemplateParameterSubstitutionType();
 
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
-        TPT->Replacement = GetQualifiedType(Ty, WalkType(Ty, &Next));
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
 
-        return TPT;
+        auto RepTy = TP->getReplacementType();
+        TPT->Replacement = GetQualifiedType(RepTy, WalkType(RepTy, &Next));
+
+        Ty = TPT;
+        break;
     }
     case Type::InjectedClassName:
     {
@@ -1367,13 +1563,17 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         auto ICNT = gcnew CppSharp::AST::InjectedClassNameType();
         ICNT->Class = safe_cast<CppSharp::AST::Class^>(WalkDeclaration(
             ICN->getDecl(), 0, /*IgnoreSystemDecls=*/false));
-        return ICNT;
+
+        Ty = ICNT;
+        break;
     }
     case Type::DependentName:
     {
         auto DN = Type->getAs<DependentNameType>();
         auto DNT = gcnew CppSharp::AST::DependentNameType();
-        return DNT;
+
+        Ty = DNT;
+        break;
     }
     case Type::LValueReference:
     {
@@ -1383,12 +1583,13 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         P->Modifier = CppSharp::AST::PointerType::TypeModifier::LVReference;
 
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
 
         auto Pointee = LR->getPointeeType();
         P->QualifiedPointee = GetQualifiedType(Pointee, WalkType(Pointee, &Next));
 
-        return P;
+        Ty = P;
+        break;
     }
     case Type::RValueReference:
     {
@@ -1398,12 +1599,13 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         P->Modifier = CppSharp::AST::PointerType::TypeModifier::RVReference;
 
         TypeLoc Next;
-        if (!TL->isNull()) Next = TL->getNextTypeLoc();
+        if (TL && !TL->isNull()) Next = TL->getNextTypeLoc();
 
         auto Pointee = LR->getPointeeType();
         P->QualifiedPointee = GetQualifiedType(Pointee, WalkType(Pointee, &Next));
 
-        return P;
+        Ty = P;
+        break;
     }
     case Type::Vector:
     {
@@ -1420,6 +1622,9 @@ CppSharp::AST::Type^ Parser::WalkType(clang::QualType QualType, clang::TypeLoc* 
         Debug("Unhandled type class '%s'\n", Type->getTypeClassName());
         return nullptr;
     } }
+
+    Ty->IsDependent = Type->isDependentType();
+    return Ty;
 }
 
 //-----------------------------------//
@@ -1461,16 +1666,13 @@ CppSharp::AST::Enumeration^ Parser::WalkEnum(clang::EnumDecl* ED)
     {
         EnumConstantDecl* ECD = (*it);
 
-        std::string BriefText;
-        if (const RawComment* Comment = AST->getRawCommentForAnyRedecl(ECD))
-            BriefText = Comment->getBriefText(*AST);
-
         auto EnumItem = gcnew CppSharp::AST::Enumeration::Item();
+        HandleDeclaration(ECD, EnumItem);
+
         EnumItem->Name = marshalString<E_UTF8>(ECD->getNameAsString());
         auto Value = ECD->getInitVal();
         EnumItem->Value = Value.isSigned() ? Value.getSExtValue()
             : Value.getZExtValue();
-        EnumItem->Comment = marshalString<E_UTF8>(BriefText);
 
         std::string Text;
         if (GetDeclText(ECD->getSourceRange(), Text))
@@ -1510,6 +1712,7 @@ static bool CanCheckCodeGenInfo(const clang::Type* Ty)
     return CheckCodeGenInfo;
 }
 
+
 void Parser::WalkFunction(clang::FunctionDecl* FD, CppSharp::AST::Function^ F,
                           bool IsDependent)
 {
@@ -1517,13 +1720,11 @@ void Parser::WalkFunction(clang::FunctionDecl* FD, CppSharp::AST::Function^ F,
     using namespace clix;
 
     assert (FD->getBuiltinID() == 0);
-
     auto FT = FD->getType()->getAs<FunctionType>();
 
     auto NS = GetNamespace(FD);
     assert(NS && "Expected a valid namespace");
 
-    F->OriginalPtr = System::IntPtr(FD);
     F->Name = marshalString<E_UTF8>(FD->getNameAsString());
     F->Namespace = NS;
     F->IsVariadic = FD->isVariadic();
@@ -1570,14 +1771,17 @@ void Parser::WalkFunction(clang::FunctionDecl* FD, CppSharp::AST::Function^ F,
     if (FTSI)
     {
         auto FTL = FTSI->getTypeLoc();
-        while (!FTL.getAs<FunctionTypeLoc>())
+        while (FTL && !FTL.getAs<FunctionTypeLoc>())
             FTL = FTL.getNextTypeLoc();
 
-        auto FTInfo = FTL.castAs<FunctionTypeLoc>();
-        assert (!FTInfo.isNull());
+        if (FTL)
+        {
+            auto FTInfo = FTL.castAs<FunctionTypeLoc>();
+            assert (!FTInfo.isNull());
 
-        ParamStartLoc = FTInfo.getRParenLoc();
-        ResultLoc = FTInfo.getResultLoc().getLocStart();
+            ParamStartLoc = FTInfo.getRParenLoc();
+            ResultLoc = FTInfo.getResultLoc().getLocStart();
+        }
     }
 
     clang::SourceRange Range(FD->getLocStart(), ParamStartLoc);
@@ -1655,6 +1859,8 @@ CppSharp::AST::Function^ Parser::WalkFunction(clang::FunctionDecl* FD, bool IsDe
         return F;
 
     F = gcnew CppSharp::AST::Function();
+    HandleDeclaration(FD, F);
+
     WalkFunction(FD, F, IsDependent);
 
     if (AddToNamespace)
@@ -1797,6 +2003,8 @@ CppSharp::AST::Variable^ Parser::WalkVariable(clang::VarDecl *VD)
     using namespace clix;
 
     auto Var = gcnew CppSharp::AST::Variable();
+    HandleDeclaration(VD, Var);
+
     Var->Name = marshalString<E_UTF8>(VD->getName());
     Var->Access = ConvertToAccess(VD->getAccess());
 
@@ -1825,6 +2033,52 @@ bool Parser::GetDeclText(clang::SourceRange SR, std::string& Text)
     return !Invalid && !Text.empty();
 }
 
+CppSharp::AST::PreprocessedEntity^ Parser::WalkPreprocessedEntity(
+    CppSharp::AST::Declaration^ Decl, clang::PreprocessedEntity* PPEntity)
+{
+    using namespace clang;
+
+    for (unsigned I = 0, E = Decl->PreprocessedEntities->Count;
+        I != E; ++I)
+    {
+        auto Entity = Decl->PreprocessedEntities[I];
+        if (Entity->OriginalPtr == System::IntPtr(PPEntity))
+            return Entity;
+    }
+
+    CppSharp::AST::PreprocessedEntity^ Entity;
+
+    switch(PPEntity->getKind())
+    {
+    case PreprocessedEntity::MacroExpansionKind:
+    {
+        const MacroExpansion* MD = cast<MacroExpansion>(PPEntity);
+        Entity = gcnew CppSharp::AST::MacroExpansion();
+
+        std::string Text;
+        if (!GetDeclText(PPEntity->getSourceRange(), Text))
+            return nullptr;
+
+        static_cast<CppSharp::AST::MacroExpansion^>(Entity)->Text = 
+            clix::marshalString<clix::E_UTF8>(Text);
+        break;
+    }
+    case PreprocessedEntity::MacroDefinitionKind:
+    {
+        const MacroDefinition* MD = cast<MacroDefinition>(PPEntity);
+        Entity = gcnew CppSharp::AST::MacroDefinition();
+        break;
+    }
+    default:
+        return nullptr;
+    }
+
+    Entity->OriginalPtr = System::IntPtr(PPEntity);
+    Decl->PreprocessedEntities->Add(Entity);
+
+    return Entity;
+}
+
 void Parser::HandlePreprocessedEntities(CppSharp::AST::Declaration^ Decl,
                                         clang::SourceRange sourceRange,
                                         CppSharp::AST::MacroLocation macroLocation)
@@ -1848,36 +2102,12 @@ void Parser::HandlePreprocessedEntities(CppSharp::AST::Declaration^ Decl,
     for (auto it = Range.first; it != Range.second; ++it)
     {
         PreprocessedEntity* PPEntity = (*it);
-        
-        CppSharp::AST::PreprocessedEntity^ Entity;
-        switch(PPEntity->getKind())
-        {
-        case PreprocessedEntity::MacroExpansionKind:
-        {
-            const MacroExpansion* MD = cast<MacroExpansion>(PPEntity);
-            Entity = gcnew CppSharp::AST::MacroExpansion();
 
-            std::string Text;
-            if (!GetDeclText(PPEntity->getSourceRange(), Text))
-                continue;
+        auto Entity = WalkPreprocessedEntity(Decl, PPEntity);
+        if (!Entity) continue;
 
-            static_cast<CppSharp::AST::MacroExpansion^>(Entity)->Text = 
-                clix::marshalString<clix::E_UTF8>(Text);
-            break;
-        }
-        case PreprocessedEntity::MacroDefinitionKind:
-        {
-            const MacroDefinition* MD = cast<MacroDefinition>(PPEntity);
-            Entity = gcnew CppSharp::AST::MacroDefinition();
-            break;
-        }
-        default:
-            continue;
-        }
-
-        Entity->Location = macroLocation;
-
-        Decl->PreprocessedEntities->Add(Entity);
+        if (Entity->Location == CppSharp::AST::MacroLocation::Unknown)
+            Entity->Location = macroLocation;
     }
 }
 
@@ -1897,6 +2127,11 @@ void Parser::HandleOriginalText(clang::Decl* D, CppSharp::AST::Declaration^ Decl
 
 void Parser::HandleDeclaration(clang::Decl* D, CppSharp::AST::Declaration^ Decl)
 {
+    if (Decl->OriginalPtr.ToPointer() != nullptr)
+        return;
+
+    Decl->OriginalPtr = System::IntPtr(D);
+
     if (Decl->PreprocessedEntities->Count == 0)
     {
         auto startLoc = GetDeclStartLocation(C.get(), D);
@@ -1911,6 +2146,9 @@ void Parser::HandleDeclaration(clang::Decl* D, CppSharp::AST::Declaration^ Decl)
 
     if (const clang::ValueDecl *VD = clang::dyn_cast_or_null<clang::ValueDecl>(D))
         Decl->IsDependent = VD->getType()->isDependentType();
+
+    if (const clang::DeclContext *DC = clang::dyn_cast_or_null<clang::DeclContext>(D))
+        Decl->IsDependent |= DC->isDependentContext();
 
     Decl->Access = ConvertToAccess(D->getAccess());
 }
@@ -1978,17 +2216,13 @@ CppSharp::AST::Declaration^ Parser::WalkDeclaration(clang::Decl* D,
         ClassTemplateDecl* TD = cast<ClassTemplateDecl>(D);
         auto Template = WalkClassTemplate(TD); 
 
-        auto NS = GetNamespace(TD);
-        Template->Namespace = NS;
-        NS->Templates->Add(Template);
-        
         Decl = Template;
         break;
     }
     case Decl::ClassTemplateSpecialization:
     {
         auto TS = cast<ClassTemplateSpecializationDecl>(D);
-        auto CT = gcnew CppSharp::AST::ClassTemplateSpecialization();
+        auto CT = WalkClassTemplateSpecialization(TS);
 
         Decl = CT;
         break;
@@ -1996,21 +2230,17 @@ CppSharp::AST::Declaration^ Parser::WalkDeclaration(clang::Decl* D,
     case Decl::ClassTemplatePartialSpecialization:
     {
         auto TS = cast<ClassTemplatePartialSpecializationDecl>(D);
-        auto CT = gcnew CppSharp::AST::ClassTemplatePartialSpecialization();
+        auto CT = WalkClassTemplatePartialSpecialization(TS);
 
         Decl = CT;
         break;
     }
     case Decl::FunctionTemplate:
     {
-        FunctionTemplateDecl* TD = cast<FunctionTemplateDecl>(D);
-        auto Template = WalkFunctionTemplate(TD); 
+        auto TD = cast<FunctionTemplateDecl>(D);
+        auto FT = WalkFunctionTemplate(TD); 
 
-        auto NS = GetNamespace(TD);
-        Template->Namespace = NS;
-        NS->Templates->Add(Template);
-
-        Decl = Template;
+        Decl = FT;
         break;
     }
     case Decl::Enum:
@@ -2054,7 +2284,8 @@ CppSharp::AST::Declaration^ Parser::WalkDeclaration(clang::Decl* D,
         if (Typedef) return Typedef;
 
         Typedef = NS->FindTypedef(Name, /*Create=*/true);
-        
+        HandleDeclaration(TD, Typedef);
+
         auto TTL = TD->getTypeSourceInfo()->getTypeLoc();
         Typedef->QualifiedType = GetQualifiedType(TD->getUnderlyingType(),
             WalkType(TD->getUnderlyingType(), &TTL));
@@ -2095,6 +2326,7 @@ CppSharp::AST::Declaration^ Parser::WalkDeclaration(clang::Decl* D,
     case Decl::AccessSpec:
     case Decl::Friend:
     case Decl::Using:
+    case Decl::UsingDirective:
     case Decl::UsingShadow:
     case Decl::UnresolvedUsingTypename:
     case Decl::UnresolvedUsingValue:
@@ -2114,9 +2346,6 @@ CppSharp::AST::Declaration^ Parser::WalkDeclaration(clang::Decl* D,
 
         break;
     } };
-
-    if (Decl)
-        HandleDeclaration(D, Decl);
 
     return Decl;
 }
@@ -2209,6 +2438,8 @@ void Parser::HandleDiagnostics(ParserResult^ res)
 
 ParserResult^ Parser::ParseHeader(const std::string& File)
 {
+    assert(Opts->ASTContext && "Expected a valid ASTContext");
+
     auto res = gcnew ParserResult();
     res->ASTContext = Lib;
 
@@ -2291,7 +2522,8 @@ ParserResult^ Parser::ParseHeader(const std::string& File)
  }
 
 ParserResultKind Parser::ParseArchive(llvm::StringRef File,
-                                      llvm::MemoryBuffer *Buffer)
+                                      llvm::MemoryBuffer *Buffer,
+                                      CppSharp::AST::NativeLibrary^ NativeLib)
 {
     llvm::error_code Code;
     llvm::object::Archive Archive(Buffer, Code);
@@ -2300,7 +2532,7 @@ ParserResultKind Parser::ParseArchive(llvm::StringRef File,
         return ParserResultKind::Error;
 
     auto LibName = clix::marshalString<clix::E_UTF8>(File);
-    auto NativeLib = Symbols->FindOrCreateLibrary(LibName);
+    NativeLib->FileName = LibName;
 
     for(auto it = Archive.begin_symbols(); it != Archive.end_symbols(); ++it)
     {
@@ -2317,7 +2549,8 @@ ParserResultKind Parser::ParseArchive(llvm::StringRef File,
 }
 
 ParserResultKind Parser::ParseSharedLib(llvm::StringRef File,
-                                        llvm::MemoryBuffer *Buffer)
+                                        llvm::MemoryBuffer *Buffer,
+                                        CppSharp::AST::NativeLibrary^ NativeLib)
 {
     auto Object = llvm::object::ObjectFile::createObjectFile(Buffer);
 
@@ -2325,7 +2558,7 @@ ParserResultKind Parser::ParseSharedLib(llvm::StringRef File,
         return ParserResultKind::Error;
 
     auto LibName = clix::marshalString<clix::E_UTF8>(File);
-    auto NativeLib = Symbols->FindOrCreateLibrary(LibName);
+    NativeLib->FileName = LibName;
 
     llvm::error_code ec;
     for(auto it = Object->begin_symbols(); it != Object->end_symbols(); it.increment(ec))
@@ -2388,11 +2621,15 @@ ParserResult^ Parser::ParseLibrary(const std::string& File)
         return res;
     }
 
-    res->Kind = ParseArchive(File, FM.getBufferForFile(FileEntry));
+    res->Kind = ParseArchive(File, FM.getBufferForFile(FileEntry),
+        res->Library);
+
     if (res->Kind == ParserResultKind::Success)
         return res;
 
-    res->Kind = ParseSharedLib(File, FM.getBufferForFile(FileEntry));
+    res->Kind = ParseSharedLib(File, FM.getBufferForFile(FileEntry),
+        res->Library);
+
     if (res->Kind == ParserResultKind::Success)
         return res;
 

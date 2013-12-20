@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using NUnit.Framework;
+﻿using NUnit.Framework;
 using Basic;
 
 [TestFixture]
@@ -99,11 +98,10 @@ public class BasicTests
         def.Bar();
     }
 
-    [Test, Ignore]
+    [Test]
     public void TestLeftShiftOperator()
     {
-        Foo2 foo2 = new Foo2();
-        foo2.C = 2;
+        var foo2 = new Foo2 {C = 2};
         Foo2 result = foo2 << 3;
         Assert.That(result.C, Is.EqualTo(16));
     }
@@ -113,7 +111,7 @@ public class BasicTests
     {
         var returnsAbstractFoo = new ReturnsAbstractFoo();
         var abstractFoo = returnsAbstractFoo.getFoo();
-        Assert.AreEqual(abstractFoo.pureFunction(), 5);
+        Assert.AreEqual(abstractFoo.pureFunction(1), 5);
         Assert.AreEqual(abstractFoo.pureFunction1(), 10);
         Assert.AreEqual(abstractFoo.pureFunction2(), 15);
     }
@@ -121,8 +119,37 @@ public class BasicTests
     [Test]
     public void TestANSI()
     {
-        Foo foo = new Foo();
+        var foo = new Foo();
         Assert.That(foo.GetANSI(), Is.EqualTo("ANSI"));
+    }
+
+    [Test]
+    public void TestMoveFunctionToClass()
+    {
+        Assert.That(basic.test(new basic()), Is.EqualTo(5));
+    }
+
+    [Test]
+    public void TestMethodWithFixedInstance()
+    {
+        var bar = new Bar2 { A = 1, B = 2, C = 3 };
+        Foo2 foo = bar.needFixedInstance();
+        Assert.AreEqual(foo.A, 1);
+        Assert.AreEqual(foo.B, 2);
+        Assert.AreEqual(foo.C, 3);
+    }
+
+    [Test]
+    public void TestConversionOperator()
+    {
+        var bar = new Bar2 {A = 1, B = 2, C = 3};
+        Foo2 foo = bar;
+        Assert.AreEqual(foo.A, 1);
+        Assert.AreEqual(foo.B, 2);
+        Assert.AreEqual(foo.C, 3);
+
+        Assert.AreEqual(300, new Bar2.Nested());
+        Assert.AreEqual(500, new Bar2());
     }
 }
  

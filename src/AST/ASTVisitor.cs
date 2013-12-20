@@ -137,6 +137,14 @@ namespace CppSharp.AST
             return typedef.Declaration.Visit(this);
         }
 
+        public bool VisitAttributedType(AttributedType attributed, TypeQualifiers quals)
+        {
+            if (!VisitType(attributed, quals))
+                return false;
+
+            return attributed.Modified.Visit(this);
+        }
+
         public virtual bool VisitDecayedType(DecayedType decayed, TypeQualifiers quals)
         {
             if (!VisitType(decayed, quals))
@@ -351,7 +359,7 @@ namespace CppSharp.AST
             if (!VisitDeclaration(template))
                 return false;
 
-            return template.TemplatedClass.Visit(this);
+            return true;
         }
 
         public virtual bool VisitFunctionTemplateDecl(FunctionTemplate template)

@@ -25,6 +25,7 @@ public:
     Qux(Foo foo);
     int farAwayFunc() const;
     int array[3];
+    void obsolete();
 };
 
 class DLL_API Bar : public Qux
@@ -46,18 +47,9 @@ private:
 class DLL_API Baz : public Foo, public Bar
 {
 public:
-    class DLL_API Nested
-    {
-    public:
-        operator int() const;
-    };
 
     int takesQux(const Qux& qux);
     Qux returnQux();
-    operator int() const;
-
-    typedef void *Baz::*FunctionPointerResolvedAsVoidStar;
-    operator FunctionPointerResolvedAsVoidStar() const { return 0; }
 };
 
 struct QArrayData
@@ -95,15 +87,27 @@ public:
     virtual long prop();
 };
 
+template <typename T>
+class QFlags
+{
+public:
+    QFlags() {}
+};
+
 class DLL_API ComplexType
 {
 public:
     int check();
+    QFlags<int> returnsQFlags();
+    void takesQFlags(const QFlags<int> f);
 };
 
 class DLL_API P : Proprietor
 {
 public:
+    P(const Qux& qux);
+    P(Qux* qux);
+
     virtual void setValue(int value);
     virtual long prop();
 

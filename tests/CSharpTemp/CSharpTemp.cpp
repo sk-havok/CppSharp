@@ -46,6 +46,11 @@ int Qux::farAwayFunc() const
     return 20;
 }
 
+void Qux::obsolete()
+{
+
+}
+
 int Bar::method()
 {
     return 2;
@@ -80,11 +85,6 @@ Bar Bar::operator ++(int i)
     return bar;
 }
 
-Baz::Nested::operator int() const
-{
-    return 300;
-}
-
 int Baz::takesQux(const Qux& qux)
 {
     return qux.farAwayFunc();
@@ -93,11 +93,6 @@ int Baz::takesQux(const Qux& qux)
 Qux Baz::returnQux()
 {
     return Qux();
-}
-
-Baz::operator int() const
-{
-    return 500;
 }
 
 int AbstractProprietor::getValue()
@@ -138,6 +133,26 @@ long P::prop()
 int ComplexType::check()
 {
     return 5;
+}
+
+QFlags<int> ComplexType::returnsQFlags()
+{
+    return QFlags<int>();
+}
+
+void ComplexType::takesQFlags(const QFlags<int> f)
+{
+
+}
+
+P::P(const Qux &qux)
+{
+
+}
+
+P::P(Qux *qux)
+{
+
 }
 
 ComplexType P::complexType()

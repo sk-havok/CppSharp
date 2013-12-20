@@ -1,4 +1,5 @@
-﻿using System.CodeDom.Compiler;
+﻿using System;
+using System.CodeDom.Compiler;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -13,7 +14,7 @@ using System.IO;
 using Microsoft.CSharp;
 
 #if !OLD_PARSER
-using Std;
+using CppSharp.Parser;
 #endif
 
 namespace CppSharp
@@ -37,6 +38,7 @@ namespace CppSharp
             Options = options;
             Diagnostics = diagnostics;
             Project = new Project();
+            ASTContext = new ASTContext();
             Symbols = new SymbolContext();
             TypeDatabase = new TypeMapDatabase();
             TranslationUnitPasses = new PassBuilder<TranslationUnitPass>(this);
@@ -119,12 +121,7 @@ namespace CppSharp
             var options = new ParserOptions
             {
                 FileName = file.Path,
-#if !OLD_PARSER
-                IncludeDirs = Options.IncludeDirs.ToStd(),
-                SystemIncludeDirs = Options.SystemIncludeDirs.ToStd(),
-                Defines = Options.Defines.ToStd(),
-                LibraryDirs = Options.LibraryDirs.ToStd(),
-#else
+#if OLD_PARSER
                 IncludeDirs = Options.IncludeDirs,
                 SystemIncludeDirs = Options.SystemIncludeDirs,
                 Defines = Options.Defines,
@@ -150,9 +147,12 @@ namespace CppSharp
                 source.Options = BuildParseOptions(source);
             }
 
-            var parser = new ClangParser();
+#if !OLD_PARSER
+            var parser = new ClangParser(new Parser.AST.ASTContext());
+#else
+            var parser = new ClangParser(ASTContext);
+#endif
             parser.SourceParsed += OnSourceFileParsed;
-            parser.LibraryParsed += OnFileParsed;
 
             parser.ParseProject(Project, Options);
 
@@ -170,6 +170,8 @@ namespace CppSharp
             foreach (var library in Options.Libraries)
             {
                 var parser = new ClangParser();
+                parser.LibraryParsed += OnFileParsed;
+
                 var res = parser.ParseLibrary(library, Options);
 
                 if (res.Kind != ParserResultKind.Success)
@@ -199,6 +201,7 @@ namespace CppSharp
 
             TranslationUnitPasses.AddPass(new FindSymbolsPass());
             TranslationUnitPasses.AddPass(new MoveOperatorToClassPass());
+            TranslationUnitPasses.AddPass(new MoveFunctionToClassPass());
             TranslationUnitPasses.AddPass(new CheckAmbiguousFunctions());
             TranslationUnitPasses.AddPass(new CheckOperatorsOverloadsPass());
             TranslationUnitPasses.AddPass(new CheckVirtualOverrideReturnCovariance());
@@ -224,7 +227,11 @@ namespace CppSharp
 
         public void ProcessCode()
         {
-            TranslationUnitPasses.RunPasses(pass => pass.VisitLibrary(ASTContext));
+            TranslationUnitPasses.RunPasses(pass =>
+                {
+                    Diagnostics.Debug("Pass '{0}'", pass);
+                    pass.VisitLibrary(ASTContext);
+                });
             Generator.Process();
         }
 
@@ -250,7 +257,7 @@ namespace CppSharp
                 foreach (var template in output.Templates)
                 {
                     var fileName = string.Format("{0}.{1}", fileBase, template.FileExtension);
-                    Diagnostics.EmitMessage(DiagnosticId.FileGenerated, "Generated '{0}'", fileName);
+                    Diagnostics.EmitMessage("Generated '{0}'", fileName);
 
                     var filePath = Path.Combine(outputPath, fileName);
                     string file = Path.GetFullPath(filePath);
@@ -262,35 +269,47 @@ namespace CppSharp
 
         public void CompileCode()
         {
-            string assemblyFile;
-            if (string.IsNullOrEmpty(Options.LibraryName))
-                assemblyFile = "out.dll";
-            else
-                assemblyFile = Options.LibraryName + ".dll";
+            try
+            {
+                var assemblyFile = string.IsNullOrEmpty(Options.LibraryName) ?
+                    "out.dll" : Options.LibraryName + ".dll";
 
-            var compilerOptions = new StringBuilder();
-            compilerOptions.Append(" /doc:" + Path.ChangeExtension(Path.GetFileName(assemblyFile), ".xml"));
-            compilerOptions.Append(" /debug:pdbonly");
-            compilerOptions.Append(" /unsafe");
+                var docFile = Path.ChangeExtension(Path.GetFileName(assemblyFile), ".xml");
 
-            var compilerParameters = new CompilerParameters();
-            compilerParameters.GenerateExecutable = false;
-            compilerParameters.TreatWarningsAsErrors = false;
-            compilerParameters.OutputAssembly = assemblyFile;
-            compilerParameters.GenerateInMemory = false;
-            compilerParameters.CompilerOptions = compilerOptions.ToString();
-            compilerParameters.ReferencedAssemblies.Add(typeof(object).Assembly.Location);
-            var location = Assembly.GetExecutingAssembly().Location;
-            var locationRuntime = Path.Combine(Path.GetDirectoryName(location), "CppSharp.Runtime.dll");
-            compilerParameters.ReferencedAssemblies.Add(locationRuntime);
+                var compilerOptions = new StringBuilder();
+                compilerOptions.Append(" /doc:" + docFile);
+                compilerOptions.Append(" /debug:pdbonly");
+                compilerOptions.Append(" /unsafe");
 
-            var providerOptions = new Dictionary<string, string>();
-            providerOptions.Add("CompilerVersion", "v4.0");
-            var csharp = new CSharpCodeProvider(providerOptions);
-            var cr = csharp.CompileAssemblyFromFile(compilerParameters, Options.CodeFiles.ToArray());
+                var compilerParameters = new CompilerParameters
+                    {
+                        GenerateExecutable = false,
+                        TreatWarningsAsErrors = false,
+                        OutputAssembly = assemblyFile,
+                        GenerateInMemory = false,
+                        CompilerOptions = compilerOptions.ToString()
+                    };
 
-            foreach (var error in cr.Errors.Cast<CompilerError>().Where(error => !error.IsWarning))
-                Diagnostics.EmitError(error.ToString());
+                compilerParameters.ReferencedAssemblies.Add(typeof (object).Assembly.Location);
+                var location = Assembly.GetExecutingAssembly().Location;
+                var locationRuntime = Path.Combine(Path.GetDirectoryName(location),
+                    "CppSharp.Runtime.dll");
+                compilerParameters.ReferencedAssemblies.Add(locationRuntime);
+
+                var codeProvider = new CSharpCodeProvider(
+                    new Dictionary<string, string> {{"CompilerVersion", "v4.0"}});
+                var compilerResults = codeProvider.CompileAssemblyFromFile(
+                    compilerParameters, Options.CodeFiles.ToArray());
+
+                var errors = compilerResults.Errors.Cast<CompilerError>();
+                foreach (var error in errors.Where(error => !error.IsWarning))
+                    Diagnostics.EmitError(error.ToString());
+            }
+            catch (Exception exception)
+            {
+                Diagnostics.EmitError("Could not compile the generated source code");
+                Diagnostics.EmitMessage(exception.ToString());
+            }
         }
 
         public void AddTranslationUnitPass(TranslationUnitPass pass)
@@ -309,10 +328,14 @@ namespace CppSharp
         public static void Run(ILibrary library)
         {
             var options = new DriverOptions();
-            var driver = new Driver(options, new TextDiagnosticPrinter());
+
+            var Log = new TextDiagnosticPrinter();
+            var driver = new Driver(options, Log);
+
             library.Setup(driver);
             driver.Setup();
-            var Log = driver.Diagnostics;
+
+            Log.Verbose = driver.Options.Verbose;
 
             if (!options.Quiet)
                 Log.EmitMessage("Parsing libraries...");

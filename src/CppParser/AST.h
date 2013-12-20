@@ -20,13 +20,18 @@
 #define CS_API 
 #endif
 
+#define VECTOR(type, name) \
+    std::vector<type> name; \
+    type get##name (unsigned i) { return name[i]; } \
+    unsigned get##name##Count () { return name.size(); }
+
 namespace CppSharp { namespace CppParser { namespace AST {
 
 // Types
 
 struct CS_API Type
 {
-
+    bool IsDependent;
 };
 
 struct CS_API TypeQualifiers
@@ -79,8 +84,8 @@ enum class CallingConvention
 struct CS_API FunctionType : public Type
 {
     QualifiedType ReturnType;
-    std::vector<Parameter*> Parameters;
     CppSharp::CppParser::AST::CallingConvention CallingConvention;
+    VECTOR(Parameter*, Parameters)
 };
 
 struct CS_API PointerType : public Type
@@ -107,6 +112,12 @@ struct TypedefDecl;
 struct CS_API TypedefType : public Type
 {
     TypedefDecl* Declaration;
+};
+
+struct CS_API AttributedType : public Type
+{
+    QualifiedType Modified;
+    QualifiedType Equivalent;
 };
 
 struct CS_API DecayedType : public Type
@@ -140,7 +151,7 @@ struct Template;
 
 struct CS_API TemplateSpecializationType : public Type
 {
-    std::vector<TemplateArgument> Arguments;
+    VECTOR(TemplateArgument, Arguments)
     CppSharp::CppParser::AST::Template* Template;
     Type* Desugared;
 };
@@ -246,7 +257,7 @@ struct CS_API VTableComponent
 
 struct CS_API VTableLayout
 {
-    std::vector<VTableComponent> Components;
+    VECTOR(VTableComponent, Components)
 };
 
 struct CS_API VFTableInfo
@@ -267,7 +278,7 @@ enum struct CppAbi
 struct CS_API ClassLayout
 {
     CppAbi ABI;
-    std::vector<VFTableInfo> VFTables;
+    VECTOR(VFTableInfo, VFTables)
     VTableLayout Layout;
     bool HasOwnVFPtr;
     long VBPtrOffset;
@@ -311,7 +322,7 @@ struct CS_API Declaration
     bool IsDependent;
     Declaration* CompleteDeclaration;
     unsigned DefinitionOrder;
-    std::vector<PreprocessedEntity*> PreprocessedEntities;
+    VECTOR(PreprocessedEntity*, PreprocessedEntities)
     void* OriginalPtr;
 };
 
@@ -342,13 +353,13 @@ struct CS_API DeclarationContext : public Declaration
 
     TypedefDecl* FindTypedef(const std::string& Name, bool Create = false);
 
-    std::vector<CppSharp::CppParser::AST::Namespace*> Namespaces;
-    std::vector<Enumeration*> Enums;
-    std::vector<Function*> Functions;
-    std::vector<Class*> Classes;
-    std::vector<Template*> Templates;
-    std::vector<TypedefDecl*> Typedefs;
-    std::vector<Variable*> Variables;
+    VECTOR(Namespace*, Namespaces)
+    VECTOR(Enumeration*, Enums)
+    VECTOR(Function*, Functions)
+    VECTOR(Class*, Classes)
+    VECTOR(Template*, Templates)
+    VECTOR(TypedefDecl*, Typedefs)
+    VECTOR(Variable*, Variables)
     std::map<uint64_t, Declaration*> Anonymous;
 };
 
@@ -439,7 +450,7 @@ struct CS_API Function : public Declaration
     std::string Mangled;
     std::string Signature;
     CppSharp::CppParser::AST::CallingConvention CallingConvention;
-    std::vector<Parameter*> Parameters;
+    VECTOR(Parameter*, Parameters)
 };
 
 struct AccessSpecifierDecl;
@@ -459,15 +470,15 @@ struct CS_API Method : public Function
     bool IsDefaultConstructor;
     bool IsCopyConstructor;
     bool IsMoveConstructor;
+
+    QualifiedType ConversionType;
 };
 
 struct CS_API Enumeration : public Declaration
 {
     struct CS_API Item : public Declaration
     {
-        std::string Name;
         std::string Expression;
-        std::string Comment;
         uint64_t Value;
     };
 
@@ -481,7 +492,7 @@ struct CS_API Enumeration : public Declaration
     EnumModifiers Modifiers;
     CppSharp::CppParser::AST::Type* Type;
     CppSharp::CppParser::AST::BuiltinType* BuiltinType;
-    std::vector<Item> Items;
+    VECTOR(Item, Items)
 };
 
 struct CS_API Variable : public Declaration
@@ -515,10 +526,10 @@ struct CS_API AccessSpecifierDecl : public Declaration
 
 struct CS_API Class : public DeclarationContext
 {
-    std::vector<BaseClassSpecifier*> Bases;
-    std::vector<Field*> Fields;
-    std::vector<Method*> Methods;
-    std::vector<AccessSpecifierDecl*> Specifiers;
+    VECTOR(BaseClassSpecifier*, Bases)
+    VECTOR(Field*, Fields)
+    VECTOR(Method*, Methods)
+    VECTOR(AccessSpecifierDecl*, Specifiers)
 
     bool IsPOD;
     bool IsAbstract;
@@ -534,18 +545,18 @@ struct CS_API Class : public DeclarationContext
 struct CS_API Template : public Declaration
 {
     Declaration* TemplatedDecl;
-    std::vector<TemplateParameter> Parameters;
+    VECTOR(TemplateParameter, Parameters)
 };
 
 struct CS_API ClassTemplate : public Template
 {
 };
 
-struct CS_API ClassTemplateSpecialization : public Declaration
+struct CS_API ClassTemplateSpecialization : public Class
 {
 };
 
-struct CS_API ClassTemplatePartialSpecialization : public Declaration
+struct CS_API ClassTemplatePartialSpecialization : public ClassTemplateSpecialization
 {
 };
 
@@ -581,20 +592,20 @@ struct CS_API TranslationUnit : public Namespace
 {
     std::string FileName;
     bool IsSystemHeader;
-    std::vector<Namespace*> Namespaces;
-    std::vector<MacroDefinition*> Macros;
+    VECTOR(Namespace*, Namespaces)
+    VECTOR(MacroDefinition*, Macros)
 };
 
 struct CS_API NativeLibrary
 {
     std::string FileName;
-    std::vector<std::string> Symbols;
+    VECTOR(std::string, Symbols)
 };
 
 struct CS_API ASTContext
 {
     TranslationUnit* FindOrCreateModule(const std::string& File);
-    std::vector<TranslationUnit*> TranslationUnits;
+    VECTOR(TranslationUnit*, TranslationUnits)
 };
 
 } } }

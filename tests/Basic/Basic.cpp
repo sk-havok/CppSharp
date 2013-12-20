@@ -32,6 +32,41 @@ Bar::Item Bar::RetItem1()
     return Bar::Item1;
 }
 
+Bar* Bar::returnPointerToValueType()
+{
+    return this;
+}
+
+Bar2::Nested::operator int() const
+{
+    return 300;
+}
+
+Bar2::operator int() const
+{
+    return 500;
+}
+
+Bar2::operator Foo2()
+{
+    Foo2 f;
+    f.A = A;
+    f.B = B;
+    f.C = C;
+
+    return f;
+}
+
+Foo2 Bar2::needFixedInstance() const
+{
+    Foo2 f;
+    f.A = A;
+    f.B = B;
+    f.C = C;
+
+    return f;
+}
+
 Hello::Hello ()
 {
     //cout << "Ctor!" << "\n";
@@ -148,7 +183,7 @@ Bar indirectReturn()
     return Bar();
 }
 
-int ImplementsAbstractFoo::pureFunction()
+int ImplementsAbstractFoo::pureFunction(int i)
 {
     return 5;
 }
@@ -182,4 +217,9 @@ void DefaultParameters::Bar() const
 
 void DefaultParameters::Bar()
 {
+}
+
+int test(basic& s)
+{
+    return 5;
 }

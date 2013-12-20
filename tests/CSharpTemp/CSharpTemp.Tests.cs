@@ -1,4 +1,6 @@
-﻿using System.Reflection;
+﻿using System;
+using System.Linq;
+using System.Reflection;
 using CSharpTemp;
 using NUnit.Framework;
 using Foo = CSharpTemp.Foo;
@@ -43,7 +45,7 @@ public class CSharpTempTests
     [Test]
     public void TestMultipleInheritance()
     {
-        Baz baz = new Baz();
+        var baz = new Baz();
         Assert.That(baz.Method, Is.EqualTo(1));
         var bar = (IBar) baz;
         Assert.That(bar.Method, Is.EqualTo(2));
@@ -53,11 +55,6 @@ public class CSharpTempTests
         Assert.That(baz.FarAwayFunc, Is.EqualTo(20));
         Assert.That(baz.TakesQux(baz), Is.EqualTo(20));
         Assert.That(baz.ReturnQux().FarAwayFunc, Is.EqualTo(20));
-        int cast = baz;
-        Assert.That(cast, Is.EqualTo(500));
-        var nested = new Baz.Nested();
-        int nestedCast = nested;
-        Assert.That(nestedCast, Is.EqualTo(300));
     }
 
     [Test]
@@ -68,7 +65,7 @@ public class CSharpTempTests
         Assert.That(proprietor.Value, Is.EqualTo(20));
         proprietor.Prop = 50;
         Assert.That(proprietor.Prop, Is.EqualTo(50));
-        var p = new P();
+        var p = new P(null);
         p.Value = 20;
         Assert.That(p.Value, Is.EqualTo(30));
         p.Prop = 50;
@@ -80,5 +77,13 @@ public class CSharpTempTests
 
         Assert.That(p.Test, Is.True);
         Assert.That(p.IsBool, Is.False);
+    }
+
+    [Test]
+    public void TestAttributes()
+    {
+        Assert.That(typeof(Qux).GetMethod("Obsolete")
+            .GetCustomAttributes(typeof(ObsoleteAttribute), false).Length,
+            Is.GreaterThan(0));
     }
 }

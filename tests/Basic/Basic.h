@@ -43,11 +43,30 @@ struct DLL_API Bar
     Item RetItem1();
     int A;
     float B;
+
+    Bar* returnPointerToValueType();
 };
 
 struct DLL_API Bar2 : public Bar
 {
+    // Conversion operators
+
+    struct DLL_API Nested
+    {
+        operator int() const;
+    };
+
+    operator int() const;
+    operator Foo2();
+    Foo2 needFixedInstance() const;
+
+    typedef void *Bar2::*FunctionPointerResolvedAsVoidStar;
+    operator FunctionPointerResolvedAsVoidStar() const { return 0; }
+
     int C;
+    Bar* pointerToStruct;
+    int* pointerToPrimitive;
+    Foo2* pointerToClass;
 };
 
 enum Enum
@@ -98,15 +117,16 @@ public:
 class DLL_API AbstractFoo
 {
 public:
-    virtual int pureFunction() = 0;
+    virtual int pureFunction(int i) = 0;
     virtual int pureFunction1() = 0;
     virtual int pureFunction2() = 0;
+    typedef void (*QTextStreamFunction)(int &);
 };
 
 class DLL_API ImplementsAbstractFoo : public AbstractFoo
 {
 public:
-    virtual int pureFunction();
+    virtual int pureFunction(int i);
     virtual int pureFunction1();
     virtual int pureFunction2();
 };
@@ -158,8 +178,19 @@ struct DLL_API DefaultParameters
 template<class Derived>
 class Base
 {
-	// methods within Base can use template to access members of Derived
+    // methods within Base can use template to access members of Derived
+    Derived* create() { return new Derived(); }
 };
+
 class Derived : public Base<Derived>
 {
 };
+
+// Tests the MoveFunctionToClassPass
+class DLL_API basic
+{
+
+};
+
+DLL_API int test(basic& s);
+

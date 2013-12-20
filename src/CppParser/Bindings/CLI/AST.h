@@ -49,6 +49,7 @@ namespace CppSharp
             ref class PointerType;
             ref class MemberPointerType;
             ref class TypedefType;
+            ref class AttributedType;
             ref class DecayedType;
             ref class TemplateArgument;
             ref class TemplateSpecializationType;
@@ -227,6 +228,11 @@ namespace CppSharp
                 Type(System::IntPtr native);
                 Type();
 
+                property bool IsDependent
+                {
+                    bool get();
+                    void set(bool);
+                }
             };
 
             public ref class TypeQualifiers : ICppInstance
@@ -349,16 +355,20 @@ namespace CppSharp
                     CppSharp::Parser::AST::QualifiedType^ get();
                     void set(CppSharp::Parser::AST::QualifiedType^);
                 }
-                property System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^ Parameters
-                {
-                    System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^ get();
-                    void set(System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^);
-                }
                 property CppSharp::Parser::AST::CallingConvention CallingConvention
                 {
                     CppSharp::Parser::AST::CallingConvention get();
                     void set(CppSharp::Parser::AST::CallingConvention);
                 }
+                property System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^ Parameters
+                {
+                    System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^ get();
+                    void set(System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^);
+                }
+                CppSharp::Parser::AST::Parameter^ getParameters(unsigned int i);
+
+                unsigned int getParametersCount();
+
             };
 
             public ref class PointerType : CppSharp::Parser::AST::Type
@@ -416,6 +426,26 @@ namespace CppSharp
                 {
                     CppSharp::Parser::AST::TypedefDecl^ get();
                     void set(CppSharp::Parser::AST::TypedefDecl^);
+                }
+            };
+
+            public ref class AttributedType : CppSharp::Parser::AST::Type
+            {
+            public:
+
+                AttributedType(::CppSharp::CppParser::AST::AttributedType* native);
+                AttributedType(System::IntPtr native);
+                AttributedType();
+
+                property CppSharp::Parser::AST::QualifiedType^ Modified
+                {
+                    CppSharp::Parser::AST::QualifiedType^ get();
+                    void set(CppSharp::Parser::AST::QualifiedType^);
+                }
+                property CppSharp::Parser::AST::QualifiedType^ Equivalent
+                {
+                    CppSharp::Parser::AST::QualifiedType^ get();
+                    void set(CppSharp::Parser::AST::QualifiedType^);
                 }
             };
 
@@ -516,6 +546,10 @@ namespace CppSharp
                     CppSharp::Parser::AST::Type^ get();
                     void set(CppSharp::Parser::AST::Type^);
                 }
+                CppSharp::Parser::AST::TemplateArgument^ getArguments(unsigned int i);
+
+                unsigned int getArgumentsCount();
+
             };
 
             public ref class TemplateParameter : ICppInstance
@@ -699,6 +733,10 @@ namespace CppSharp
                     System::Collections::Generic::List<CppSharp::Parser::AST::VTableComponent^>^ get();
                     void set(System::Collections::Generic::List<CppSharp::Parser::AST::VTableComponent^>^);
                 }
+                CppSharp::Parser::AST::VTableComponent^ getComponents(unsigned int i);
+
+                unsigned int getComponentsCount();
+
             };
 
             public ref class VFTableInfo : ICppInstance
@@ -793,6 +831,10 @@ namespace CppSharp
                     int get();
                     void set(int);
                 }
+                CppSharp::Parser::AST::VFTableInfo^ getVFTables(unsigned int i);
+
+                unsigned int getVFTablesCount();
+
             };
 
             public ref class Declaration : ICppInstance
@@ -865,6 +907,10 @@ namespace CppSharp
                     System::IntPtr get();
                     void set(System::IntPtr);
                 }
+                CppSharp::Parser::AST::PreprocessedEntity^ getPreprocessedEntities(unsigned int i);
+
+                unsigned int getPreprocessedEntitiesCount();
+
             };
 
             public ref class DeclarationContext : CppSharp::Parser::AST::Declaration
@@ -929,6 +975,34 @@ namespace CppSharp
                 CppSharp::Parser::AST::Function^ FindFunction(System::String^ Name, bool Create);
 
                 CppSharp::Parser::AST::TypedefDecl^ FindTypedef(System::String^ Name, bool Create);
+
+                CppSharp::Parser::AST::Namespace^ getNamespaces(unsigned int i);
+
+                unsigned int getNamespacesCount();
+
+                CppSharp::Parser::AST::Enumeration^ getEnums(unsigned int i);
+
+                unsigned int getEnumsCount();
+
+                CppSharp::Parser::AST::Function^ getFunctions(unsigned int i);
+
+                unsigned int getFunctionsCount();
+
+                CppSharp::Parser::AST::Class^ getClasses(unsigned int i);
+
+                unsigned int getClassesCount();
+
+                CppSharp::Parser::AST::Template^ getTemplates(unsigned int i);
+
+                unsigned int getTemplatesCount();
+
+                CppSharp::Parser::AST::TypedefDecl^ getTypedefs(unsigned int i);
+
+                unsigned int getTypedefsCount();
+
+                CppSharp::Parser::AST::Variable^ getVariables(unsigned int i);
+
+                unsigned int getVariablesCount();
 
             };
 
@@ -1035,6 +1109,10 @@ namespace CppSharp
                     System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^ get();
                     void set(System::Collections::Generic::List<CppSharp::Parser::AST::Parameter^>^);
                 }
+                CppSharp::Parser::AST::Parameter^ getParameters(unsigned int i);
+
+                unsigned int getParametersCount();
+
             };
 
             public ref class Method : CppSharp::Parser::AST::Function
@@ -1095,6 +1173,11 @@ namespace CppSharp
                     bool get();
                     void set(bool);
                 }
+                property CppSharp::Parser::AST::QualifiedType^ ConversionType
+                {
+                    CppSharp::Parser::AST::QualifiedType^ get();
+                    void set(CppSharp::Parser::AST::QualifiedType^);
+                }
             };
 
             public ref class Enumeration : CppSharp::Parser::AST::Declaration
@@ -1117,17 +1200,7 @@ namespace CppSharp
                     Item(System::IntPtr native);
                     Item();
 
-                    property System::String^ Name
-                    {
-                        System::String^ get();
-                        void set(System::String^);
-                    }
                     property System::String^ Expression
-                    {
-                        System::String^ get();
-                        void set(System::String^);
-                    }
-                    property System::String^ Comment
                     {
                         System::String^ get();
                         void set(System::String^);
@@ -1163,6 +1236,10 @@ namespace CppSharp
                     System::Collections::Generic::List<CppSharp::Parser::AST::Enumeration::Item^>^ get();
                     void set(System::Collections::Generic::List<CppSharp::Parser::AST::Enumeration::Item^>^);
                 }
+                CppSharp::Parser::AST::Enumeration::Item^ getItems(unsigned int i);
+
+                unsigned int getItemsCount();
+
             };
 
             public ref class Variable : CppSharp::Parser::AST::Declaration
@@ -1325,6 +1402,22 @@ namespace CppSharp
                     CppSharp::Parser::AST::ClassLayout^ get();
                     void set(CppSharp::Parser::AST::ClassLayout^);
                 }
+                CppSharp::Parser::AST::BaseClassSpecifier^ getBases(unsigned int i);
+
+                unsigned int getBasesCount();
+
+                CppSharp::Parser::AST::Field^ getFields(unsigned int i);
+
+                unsigned int getFieldsCount();
+
+                CppSharp::Parser::AST::Method^ getMethods(unsigned int i);
+
+                unsigned int getMethodsCount();
+
+                CppSharp::Parser::AST::AccessSpecifierDecl^ getSpecifiers(unsigned int i);
+
+                unsigned int getSpecifiersCount();
+
             };
 
             public ref class Template : CppSharp::Parser::AST::Declaration
@@ -1345,6 +1438,10 @@ namespace CppSharp
                     System::Collections::Generic::List<CppSharp::Parser::AST::TemplateParameter^>^ get();
                     void set(System::Collections::Generic::List<CppSharp::Parser::AST::TemplateParameter^>^);
                 }
+                CppSharp::Parser::AST::TemplateParameter^ getParameters(unsigned int i);
+
+                unsigned int getParametersCount();
+
             };
 
             public ref class ClassTemplate : CppSharp::Parser::AST::Template
@@ -1357,7 +1454,7 @@ namespace CppSharp
 
             };
 
-            public ref class ClassTemplateSpecialization : CppSharp::Parser::AST::Declaration
+            public ref class ClassTemplateSpecialization : CppSharp::Parser::AST::Class
             {
             public:
 
@@ -1367,7 +1464,7 @@ namespace CppSharp
 
             };
 
-            public ref class ClassTemplatePartialSpecialization : CppSharp::Parser::AST::Declaration
+            public ref class ClassTemplatePartialSpecialization : CppSharp::Parser::AST::ClassTemplateSpecialization
             {
             public:
 
@@ -1475,6 +1572,14 @@ namespace CppSharp
                     System::Collections::Generic::List<CppSharp::Parser::AST::MacroDefinition^>^ get();
                     void set(System::Collections::Generic::List<CppSharp::Parser::AST::MacroDefinition^>^);
                 }
+                CppSharp::Parser::AST::Namespace^ getNamespaces(unsigned int i);
+
+                unsigned int getNamespacesCount();
+
+                CppSharp::Parser::AST::MacroDefinition^ getMacros(unsigned int i);
+
+                unsigned int getMacrosCount();
+
             };
 
             public ref class NativeLibrary : ICppInstance
@@ -1502,6 +1607,10 @@ namespace CppSharp
                     System::Collections::Generic::List<System::String^>^ get();
                     void set(System::Collections::Generic::List<System::String^>^);
                 }
+                System::String^ getSymbols(unsigned int i);
+
+                unsigned int getSymbolsCount();
+
             };
 
             public ref class ASTContext : ICppInstance
@@ -1525,6 +1634,10 @@ namespace CppSharp
                     void set(System::Collections::Generic::List<CppSharp::Parser::AST::TranslationUnit^>^);
                 }
                 CppSharp::Parser::AST::TranslationUnit^ FindOrCreateModule(System::String^ File);
+
+                CppSharp::Parser::AST::TranslationUnit^ getTranslationUnits(unsigned int i);
+
+                unsigned int getTranslationUnitsCount();
 
             };
         }

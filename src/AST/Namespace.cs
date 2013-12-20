@@ -168,27 +168,31 @@ namespace CppSharp.AST
             return @class;
         }
 
-        public Class FindClass(string name)
+        public Class FindClass(string name,
+            StringComparison stringComparison = StringComparison.Ordinal)
         {
             if (string.IsNullOrEmpty(name)) return null;
 
-            var entries = name.Split(new string[] { "::" },
+            var entries = name.Split(new[] { "::" },
                 StringSplitOptions.RemoveEmptyEntries).ToList();
 
             if (entries.Count <= 1)
             {
-                var @class = Classes.Find(e => e.Name.Equals(name));
-                return @class;
+                return Classes.Find(e => e.Name.Equals(name, stringComparison));
             }
 
             var className = entries[entries.Count - 1];
             var namespaces = entries.Take(entries.Count - 1);
 
-            var @namespace = FindNamespace(namespaces);
-            if (@namespace == null)
-                return null;
+            DeclarationContext declContext = FindNamespace(namespaces);
+            if (declContext == null)
+            {
+                declContext = FindClass(entries[0]);
+                if (declContext == null)
+                    return null;
+            }
 
-            return @namespace.FindClass(className);
+            return declContext.FindClass(className);
         }
 
         public Class FindClass(string name, bool isComplete,
@@ -226,9 +230,16 @@ namespace CppSharp.AST
             return newClass;
         }
 
-        public ClassTemplate FindClassTemplate(string name)
+        public FunctionTemplate FindFunctionTemplate(IntPtr ptr)
         {
-            return null;
+            return Templates.FirstOrDefault(template =>
+                template.OriginalPtr == ptr) as FunctionTemplate;
+        }
+
+        public ClassTemplate FindClassTemplate(IntPtr ptr)
+        {
+            return Templates.FirstOrDefault(template =>
+                template.OriginalPtr == ptr) as ClassTemplate;
         }
 
         public TypedefDecl FindTypedef(string name, bool createDecl = false)

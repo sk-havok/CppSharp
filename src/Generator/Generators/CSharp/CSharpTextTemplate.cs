@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Web.Util;
 using CppSharp.AST;
 using CppSharp.Utils;
+using Attribute = CppSharp.AST.Attribute;
 using Type = CppSharp.AST.Type;
 
 namespace CppSharp.Generators.CSharp
@@ -280,11 +281,13 @@ namespace CppSharp.Generators.CSharp
 
         public void GenerateDeclarationCommon(Declaration decl)
         {
-            if (decl.Comment == null)
-                return;
-
-            GenerateComment(decl.Comment);
-            GenerateDebug(decl);
+            if (decl.Comment != null)
+            {
+                GenerateComment(decl.Comment);
+                GenerateDebug(decl);
+            }
+            foreach (Attribute attribute in decl.Attributes)
+                WriteLine("[{0}({1})]", attribute.Type.FullName, attribute.Value);
         }
 
         public void GenerateDebug(Declaration decl)
@@ -316,13 +319,15 @@ namespace CppSharp.Generators.CSharp
             PopBlock();
         }
 
-        public void GenerateInlineSummary(string comment)
+        public void GenerateInlineSummary(RawComment comment)
         {
-            if (string.IsNullOrWhiteSpace(comment))
+            if (comment == null) return;
+
+            if (string.IsNullOrWhiteSpace(comment.BriefText))
                 return;
 
             PushBlock(BlockKind.InlineComment);
-            WriteLine("/// <summary>{0}</summary>", comment);
+            WriteLine("/// <summary>{0}</summary>", comment.BriefText);
             PopBlock();
         }
 
@@ -671,19 +676,25 @@ namespace CppSharp.Generators.CSharp
             var marshal = new CSharpMarshalManagedToNativePrinter(marshalCtx);
             field.Visit(marshal);
 
+            Type type;
+            Class @class;
+            var isRef = field.Type.IsPointerTo(out type) &&
+                !(type.IsTagDecl(out @class) && @class.IsValueType) &&
+                !type.IsPrimitiveType();
+
+            if (isRef)
+            {
+                WriteLine("if ({0} != null)", field.Name);
+                WriteStartBraceIndent();
+            }
+
             if (!string.IsNullOrWhiteSpace(marshal.Context.SupportBefore))
                WriteLine(marshal.Context.SupportBefore);
 
-            if (field.Type.IsPointer())
-            {
-                WriteLine("if ({0} != null)", field.Name);
-                PushIndent();
-            }
-
            WriteLine("{0}.{1} = {2};", marshalVar, field.OriginalName, marshal.Context.Return);
 
-            if (field.Type.IsPointer())
-                PopIndent();
+            if (isRef)
+                WriteCloseBraceIndent();
         }
 
         public bool ShouldGenerateClassNativeField(Class @class)
@@ -1945,15 +1956,15 @@ namespace CppSharp.Generators.CSharp
             var needsInstance = false;
 
             var method = function as Method;
+            Parameter operatorParam = null;
             if (method != null)
             {
                 var @class = (Class) method.Namespace;
                 isValueType = @class.IsValueType;
 
-                needsInstance = !method.IsStatic;
-
-                if (method.IsOperator)
-                    needsInstance &= !Operators.IsBuiltinOperator(method.OperatorKind);
+                operatorParam = method.Parameters.FirstOrDefault(
+                    p => p.Kind == ParameterKind.OperatorParameter);
+                needsInstance = !method.IsStatic || operatorParam != null;
             }
 
             var needsFixedThis = needsInstance && isValueType;
@@ -1967,7 +1978,7 @@ namespace CppSharp.Generators.CSharp
                 if (hiddenParam.Kind != ParameterKind.IndirectReturnType)
                     throw new NotSupportedException("Expected hidden structure parameter kind");
 
-                Class retClass = null;
+                Class retClass;
                 hiddenParam.Type.Desugar().IsTagDecl(out retClass);
                 WriteLine("var {0} = new {1}.Internal();", GeneratedIdentifier("ret"),
                     QualifiedIdentifier(retClass.OriginalClass ?? retClass));
@@ -1976,6 +1987,9 @@ namespace CppSharp.Generators.CSharp
             var names = new List<string>();
             foreach (var param in @params)
             {
+                if (param.Param == operatorParam && needsInstance)
+                    continue;
+
                 var name = string.Empty;
                 if (param.Context != null
                     && !string.IsNullOrWhiteSpace(param.Context.ArgumentPrefix))
@@ -1993,16 +2007,28 @@ namespace CppSharp.Generators.CSharp
 
             if (needsInstance)
             {
-                names.Insert(0, needsFixedThis ? string.Format("new global::System.IntPtr(&{0})",
-                    GeneratedIdentifier("instance")) : Helpers.InstanceIdentifier);
+                if (needsFixedThis)
+                {
+                    names.Insert(0, string.Format("new global::System.IntPtr(&{0})",
+                        GeneratedIdentifier("fixedInstance")));
+                }
+                else
+                {
+                    if (operatorParam != null)
+                    {
+                        names.Insert(0, operatorParam.Name + "." + Helpers.InstanceIdentifier);
+                    }
+                    else
+                    {
+                        names.Insert(0, Helpers.InstanceIdentifier);                        
+                    }
+                }
             }
 
             if (needsFixedThis)
             {
-                //WriteLine("fixed({0}* {1} = &this)", @class.QualifiedName,
-                //    GeneratedIdentifier("instance"));
-                //WriteStartBraceIndent();
-                WriteLine("var {0} = ToInternal();", Generator.GeneratedIdentifier("instance"));
+                WriteLine("var {0} = {1};", Generator.GeneratedIdentifier("fixedInstance"),
+                    method.IsOperator ? "__arg0" : "ToInternal()");
             }
 
             if (needsReturn && !originalFunction.HasIndirectReturnTypeParameter)
@@ -2013,14 +2039,11 @@ namespace CppSharp.Generators.CSharp
             var cleanups = new List<TextGenerator>();
             GenerateFunctionCallOutParams(@params, cleanups);
 
-            foreach (var param in @params)
-            {
-                var context = param.Context;
-                if (context == null) continue;
-
-                if (!string.IsNullOrWhiteSpace(context.Cleanup))
-                    cleanups.Add(context.Cleanup);
-            }
+            cleanups.AddRange(
+                from param in @params
+                select param.Context into context
+                where context != null && !string.IsNullOrWhiteSpace(context.Cleanup)
+                select context.Cleanup);
 
             foreach (var cleanup in cleanups)
             {
@@ -2029,8 +2052,15 @@ namespace CppSharp.Generators.CSharp
 
             if (needsFixedThis)
             {
-                //    WriteCloseBraceIndent();
-                WriteLine("FromInternal(&{0});", Generator.GeneratedIdentifier("instance"));
+                if (operatorParam != null)
+                {
+                    WriteLine("{0}.FromInternal(&{1});",
+                        operatorParam.Name, Generator.GeneratedIdentifier("fixedInstance"));
+                }
+                else
+                {
+                    WriteLine("FromInternal(&{0});", Generator.GeneratedIdentifier("fixedInstance"));
+                }
             }
 
             if (needsReturn)
@@ -2044,11 +2074,20 @@ namespace CppSharp.Generators.CSharp
                 Type pointee;
                 if (retType.Type.IsPointerTo(out pointee) && isIntPtr)
                 {
-                    PrimitiveType primitive;
-                    string @null = (pointee.Desugar().IsPrimitiveType(out primitive) ||
-                        pointee.Desugar().IsPointer()) &&
-                        !CSharpTypePrinter.IsConstCharString(retType) ? 
-                        "IntPtr.Zero" : "null";
+                    pointee = pointee.Desugar();
+                    string @null;
+                    Class @class;
+                    if (pointee.IsTagDecl(out @class) && @class.IsValueType)
+                    {
+                        @null = string.Format("new {0}()", pointee);
+                    }
+                    else
+                    {
+                        @null = (pointee.IsPrimitiveType() ||
+                            pointee.IsPointer()) &&
+                            !CSharpTypePrinter.IsConstCharString(retType) ?
+                            "IntPtr.Zero" : "null";
+                    }
                     WriteLine("if ({0} == global::System.IntPtr.Zero) return {1};",
                         Generator.GeneratedIdentifier("ret"), @null);
                 }
@@ -2245,16 +2284,6 @@ namespace CppSharp.Generators.CSharp
                         SafeIdentifier(typedef.Name)));
                 TypePrinter.PopContext();
                 PopBlock(NewLineKind.BeforeNextBlock);
-            }
-            else if (typedef.Type.IsEnumType())
-            {
-                // Already handled in the parser.
-                return false;
-            }
-            else
-            {
-                Log.EmitWarning("Unhandled typedef type: {0}", typedef);
-                return false;
             }
 
             return true;

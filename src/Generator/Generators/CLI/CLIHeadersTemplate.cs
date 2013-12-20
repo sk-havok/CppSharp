@@ -551,7 +551,7 @@ namespace CppSharp.Generators.CLI
             if(isSetter) WriteLine("void set({0});", type);
 
             WriteCloseBraceIndent();
-            PopBlock();
+            PopBlock(NewLineKind.BeforeNextBlock);
         }
 
         public void GenerateMethod(Method method)
@@ -571,8 +571,9 @@ namespace CppSharp.Generators.CLI
             if (method.IsStatic || isBuiltinOperator)
                 Write("static ");
 
-            if (method.Kind == CXXMethodKind.Constructor || method.Kind == CXXMethodKind.Destructor)
-                Write("{0}(", SafeIdentifier(method.Name));
+            if (method.IsConstructor || method.IsDestructor ||
+                method.OperatorKind == CXXOperatorKind.Conversion)
+                Write("{0}(", GetMethodName(method));
             else
                 Write("{0} {1}(", method.ReturnType, SafeIdentifier(method.Name));
 
@@ -585,7 +586,7 @@ namespace CppSharp.Generators.CLI
 
             WriteLine(";");
 
-            PopBlock(NewLineKind.Always);
+            PopBlock(NewLineKind.BeforeNextBlock);
         }
 
         public bool GenerateTypedef(TypedefDecl typedef)
@@ -599,20 +600,12 @@ namespace CppSharp.Generators.CLI
                 PushBlock(CLIBlockKind.Typedef, typedef);
                 GenerateDeclarationCommon(typedef);
 
-                WriteLine("public {0};",
+                WriteLine("{0};",
                     string.Format(TypePrinter.VisitDelegate(function),
                     SafeIdentifier(typedef.Name)));
                 PopBlock(NewLineKind.BeforeNextBlock);
 
                 return true;
-            }
-            else if (typedef.Type.IsEnumType())
-            {
-                // Already handled in the parser.
-            }
-            else
-            {
-                Log.EmitMessage("Unhandled typedef type: {0}", typedef);
             }
 
             return false;

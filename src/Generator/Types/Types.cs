@@ -48,14 +48,6 @@ namespace CppSharp
             if (decl.CompleteDeclaration != null)
                 return VisitDeclaration(decl.CompleteDeclaration);
 
-            TypeMap typeMap;
-            if (TypeMapDatabase.FindTypeMap(decl, out typeMap)
-                && typeMap.IsIgnored)
-            {
-                Ignore();
-                return false;
-            }
-
             if (decl.Ignore)
             {
                 Ignore();
@@ -68,6 +60,11 @@ namespace CppSharp
         public override bool VisitClassDecl(Class @class)
         {
             return VisitDeclaration(@class);
+        }
+
+        public override bool VisitClassTemplateDecl(ClassTemplate template)
+        {
+            return false;
         }
 
         public override bool VisitTypedefType(TypedefType typedef,
@@ -87,17 +84,18 @@ namespace CppSharp
         public override bool VisitTypedefDecl(TypedefDecl typedef)
         {
             TypeMap typeMap;
-            if (TypeMapDatabase.FindTypeMap(typedef, out typeMap)
-                && typeMap.IsIgnored)
+            if (TypeMapDatabase.FindTypeMap(typedef, out typeMap))
             {
-                Ignore();
+                if (typeMap.IsIgnored)
+                    Ignore();
                 return false;
             }
 
             return base.VisitTypedefDecl(typedef);
         }
 
-        public override bool VisitMemberPointerType(MemberPointerType member, TypeQualifiers quals)
+        public override bool VisitMemberPointerType(MemberPointerType member,
+            TypeQualifiers quals)
         {
             FunctionType functionType;
             if (!member.IsPointerTo(out functionType))
@@ -119,6 +117,7 @@ namespace CppSharp
                 return false;
             }
 
+            Ignore();
             return base.VisitTemplateSpecializationType(template, quals);
         }
     }

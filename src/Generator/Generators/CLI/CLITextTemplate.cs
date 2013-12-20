@@ -79,6 +79,14 @@ namespace CppSharp.Generators.CLI
             return string.Format("{0}", decl.QualifiedName);
         }
 
+        public string GetMethodName(Method method)
+        {
+            if (method.OperatorKind == CXXOperatorKind.Conversion)
+                return SafeIdentifier("operator " + method.ConversionType);
+
+            return SafeIdentifier(method.Name);
+        }
+
         public void GenerateDeclarationCommon(Declaration decl)
         {
             if (decl.Comment == null)
@@ -100,13 +108,15 @@ namespace CppSharp.Generators.CLI
             PopBlock();
         }
 
-        public void GenerateInlineSummary(string comment)
+        public void GenerateInlineSummary(RawComment comment)
         {
-            if (String.IsNullOrWhiteSpace(comment))
+            if (comment == null) return;
+
+            if (String.IsNullOrWhiteSpace(comment.BriefText))
                 return;
 
             PushBlock(BlockKind.InlineComment);
-            WriteLine("/// <summary> {0} </summary>", comment);
+            WriteLine("/// <summary> {0} </summary>", comment.BriefText);
             PopBlock();
         }
 
