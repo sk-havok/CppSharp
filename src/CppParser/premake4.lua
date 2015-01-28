@@ -5,6 +5,8 @@ clang_msvc_flags =
   "/wd4251"
 }
 
+if not (string.starts(action, "vs") and not os.is_windows()) then
+
 project "CppSharp.CppParser"
   
   kind "SharedLib"
@@ -26,50 +28,11 @@ project "CppSharp.CppParser"
     "*.lua"
   }
   
+  SetupLLVMIncludes()
   SetupLLVMLibs()
   
   configuration "*"
-  
-  links
-  {
-    "clangAnalysis",
-    "clangAST",
-    "clangBasic",
-    "clangCodeGen",
-    "clangDriver",
-    "clangEdit",
-    "clangFrontend",
-    "clangLex",
-    "clangParse",
-    "clangSema",
-    "clangSerialization",
-    "LLVMAnalysis",
-    "LLVMAsmParser",
-    "LLVMBitReader",
-    "LLVMBitWriter",
-    "LLVMCodeGen",
-    "LLVMCore",
-    "LLVMipa",
-    "LLVMipo",
-    "LLVMInstCombine",
-    "LLVMInstrumentation",
-    "LLVMIRReader",
-    "LLVMLinker",
-    "LLVMMC",
-    "LLVMMCParser",
-    "LLVMObjCARCOpts",
-    "LLVMObject",
-    "LLVMOption",
-    "LLVMScalarOpts",
-    "LLVMSupport",
-    "LLVMTarget",
-    "LLVMTransformUtils",
-    "LLVMVectorize",
-    "LLVMX86AsmParser",
-    "LLVMX86AsmPrinter",
-    "LLVMX86Desc",
-    "LLVMX86Info",
-    "LLVMX86Utils",
-  }
+
+end
 
 include ("Bindings")

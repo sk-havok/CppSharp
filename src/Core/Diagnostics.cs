@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 
 namespace CppSharp
 {
@@ -41,6 +44,8 @@ namespace CppSharp
     public interface IDiagnosticConsumer
     {
         void Emit(DiagnosticInfo info);
+        void PushIndent(int level);
+        void PopIndent();
     }
 
     public static class DiagnosticExtensions
@@ -124,12 +129,12 @@ namespace CppSharp
         }
 
         public static void EmitError(this IDiagnosticConsumer consumer,
-            string msg, params object[] args)
+            string msg)
         {
             var diagInfo = new DiagnosticInfo
             {
                 Kind = DiagnosticKind.Error,
-                Message = string.Format(msg, args)
+                Message = msg
             };
 
             consumer.Emit(diagInfo);
@@ -138,15 +143,35 @@ namespace CppSharp
 
     public class TextDiagnosticPrinter : IDiagnosticConsumer
     {
-        public bool Verbose;
+        public Stack<int> Indents;
+        public DiagnosticKind Level;
+
+        public TextDiagnosticPrinter()
+        {
+            Indents = new Stack<int>();
+            Level = DiagnosticKind.Message;
+        }
 
         public void Emit(DiagnosticInfo info)
         {
-            if (info.Kind == DiagnosticKind.Debug && !Verbose)
+            if (info.Kind < Level)
                 return;
 
-            Console.WriteLine(info.Message);
-            System.Diagnostics.Debug.WriteLine(info.Message);
+            var currentIndent = Indents.Sum();
+            var message = new string(' ', currentIndent) + info.Message;
+
+            Console.WriteLine(message);
+            Debug.WriteLine(message);
+        }
+
+        public void PushIndent(int level)
+        {
+            Indents.Push(level);
+        }
+
+        public void PopIndent()
+        {
+            Indents.Pop();
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using CppSharp.AST;
 
 namespace CppSharp.Generators
@@ -66,38 +67,57 @@ namespace CppSharp.Generators
         {
             var outputs = new List<GeneratorOutput>();
 
-            foreach (var unit in Driver.ASTContext.TranslationUnits)
+            var units = Driver.ASTContext.TranslationUnits.Where(
+                u => u.IsGenerated && u.HasDeclarations && !u.IsSystemHeader && u.IsValid);
+            if (Driver.Options.IsCSharpGenerator && Driver.Options.GenerateSingleCSharpFile)
+                GenerateSingleTemplate(units, outputs);
+            else
+                foreach (var unit in units)
+                    GenerateTemplate(unit, outputs);
+            return outputs;
+        }
+
+        private void GenerateSingleTemplate(IEnumerable<TranslationUnit> units, ICollection<GeneratorOutput> outputs)
+        {
+            var output = new GeneratorOutput
             {
-                if (unit.Ignore || !unit.HasDeclarations)
-                    continue;
+                TranslationUnit = new TranslationUnit
+                {
+                    FilePath = string.Format("{0}.cs", Driver.Options.OutputNamespace ?? Driver.Options.LibraryName)
+                },
+                Templates = Generate(units)
+            };
+            output.Templates[0].Process();
+            outputs.Add(output);
 
-                if (unit.IsSystemHeader)
-                    continue;
+            OnUnitGenerated(output);
+        }
 
-                var templates = Generate(unit);
-                if (templates.Count == 0)
-                    continue;
+        private void GenerateTemplate(TranslationUnit unit, ICollection<GeneratorOutput> outputs)
+        {
+            var templates = Generate(new[] { unit });
+            if (templates.Count == 0)
+                return;
 
-                foreach (var template in templates)
-                    template.Process();
-
-                var output = new GeneratorOutput
-                    {
-                        TranslationUnit = unit,
-                        Templates = templates
-                    };
-                outputs.Add(output);
-
-                OnUnitGenerated(output);
+            foreach (var template in templates)
+            {
+                template.Process();
             }
 
-            return outputs;
+            var output = new GeneratorOutput
+            {
+                TranslationUnit = unit,
+                Templates = templates
+            };
+            outputs.Add(output);
+
+            OnUnitGenerated(output);
         }
 
         /// <summary>
         /// Generates the outputs for a given translation unit.
         /// </summary>
-        public abstract List<Template> Generate(TranslationUnit unit);
+        public abstract List<Template> Generate(IEnumerable<TranslationUnit> units);
 
         public static string GeneratedIdentifier(string id)
         {

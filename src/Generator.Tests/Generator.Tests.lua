@@ -1,8 +1,7 @@
 project "CppSharp.Generator.Tests"
 
   kind "SharedLib"
-  language "C#"
-  location "."
+  SetupManagedProject()
 
   files { "**.cs" }
   
@@ -21,6 +20,6 @@ project "CppSharp.Generator.Tests"
     "CppSharp",
     "CppSharp.AST",
     "CppSharp.Generator",
-    "NUnit.Framework",
+    "nunit.framework",
     "NSubstitute"
   }

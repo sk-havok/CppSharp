@@ -2,6 +2,14 @@
 
 namespace CppSharp.AST
 {
+    public enum ArchType
+    {
+        UnknownArch,
+
+        x86, // X86: i[3-9]86
+        x86_64 // X86-64: amd64, x86_64
+    }
+
     /// <summary>
     /// Represents a shared library or a static library archive.
     /// </summary>
@@ -16,6 +24,7 @@ namespace CppSharp.AST
         public NativeLibrary()
         {
             Symbols = new List<string>();
+            Dependencies = new List<string>();
         }
 
         /// <summary>
@@ -23,10 +32,14 @@ namespace CppSharp.AST
         /// </summary>
         public string FileName;
 
+        public ArchType ArchType { get; set; }
+
         /// <summary>
         /// Symbols gathered from the library.
         /// </summary>
         public IList<string> Symbols;
+
+        public IList<string> Dependencies { get; private set; }
     }
 
     public class SymbolContext
@@ -65,7 +78,15 @@ namespace CppSharp.AST
             foreach (var library in Libraries)
             {
                 foreach (var symbol in library.Symbols)
+                {
                     Symbols[symbol] = library;
+                    if (symbol.StartsWith("__"))
+                    {
+                        string stripped = symbol.Substring(1);
+                        if (!Symbols.ContainsKey(stripped))
+                            Symbols[stripped] = library;
+                    }
+                }
             }
         }
 
@@ -76,22 +97,34 @@ namespace CppSharp.AST
             if (FindLibraryBySymbol(symbol, out lib))
                 return true;
 
+            string alternativeSymbol;
+
             // Check for C symbols with a leading underscore.
-            if (FindLibraryBySymbol("_" + symbol, out lib))
+            alternativeSymbol = "_" + symbol;
+            if (FindLibraryBySymbol(alternativeSymbol, out lib))
             {
-                symbol = "_" + symbol;
+                symbol = alternativeSymbol;
                 return true;
             }
 
-            if (FindLibraryBySymbol("_imp_" + symbol, out lib))
+            alternativeSymbol = symbol.TrimStart('_');
+            if (FindLibraryBySymbol(alternativeSymbol, out lib))
             {
-                symbol = "_imp_" + symbol;
+                symbol = alternativeSymbol;
                 return true;
             }
 
+            alternativeSymbol = "_imp_" + symbol;
+            if (FindLibraryBySymbol(alternativeSymbol, out lib))
+            {
+                symbol = alternativeSymbol;
+                return true;
+            }
+
+            alternativeSymbol = "__imp_" + symbol;
             if (FindLibraryBySymbol("__imp_" + symbol, out lib))
             {
-                symbol = "__imp_" + symbol;
+                symbol = alternativeSymbol;
                 return true;
             }
 

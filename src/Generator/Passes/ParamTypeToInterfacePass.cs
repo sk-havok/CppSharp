@@ -1,5 +1,5 @@
-﻿using System.Linq;
-using CppSharp.AST;
+﻿using CppSharp.AST;
+using CppSharp.AST.Extensions;
 
 namespace CppSharp.Passes
 {
@@ -9,33 +9,18 @@ namespace CppSharp.Passes
         {
             if (!function.IsOperator)
             {
-                if (function.HasIndirectReturnTypeParameter)
+                ChangeToInterfaceType(function.ReturnType);
+                foreach (Parameter parameter in function.Parameters)
                 {
-                    var parameter = function.Parameters.Find(p => p.Kind == ParameterKind.IndirectReturnType);
-                    parameter.QualifiedType = GetInterfaceType(parameter.QualifiedType);
-                }
-                else
-                {
-                    function.ReturnType = GetInterfaceType(function.ReturnType);
-                }
-                foreach (Parameter parameter in function.Parameters.Where(
-                    p => p.Kind != ParameterKind.IndirectReturnType))
-                {
-                    parameter.QualifiedType = GetInterfaceType(parameter.QualifiedType);
+                    ChangeToInterfaceType(parameter.QualifiedType);
                 }
             }
             return base.VisitFunctionDecl(function);
         }
 
-        private static QualifiedType GetInterfaceType(QualifiedType type)
+        private static void ChangeToInterfaceType(QualifiedType type)
         {
-            var tagType = type.Type as TagType;
-            if (tagType == null)
-            {
-                var pointerType = type.Type as PointerType;
-                if (pointerType != null)
-                    tagType = pointerType.Pointee as TagType;
-            }
+            var tagType = type.Type.SkipPointerRefs() as TagType;
             if (tagType != null)
             {
                 var @class = tagType.Declaration as Class;
@@ -43,10 +28,9 @@ namespace CppSharp.Passes
                 {
                     var @interface = @class.Namespace.Classes.Find(c => c.OriginalClass == @class);
                     if (@interface != null)
-                        return new QualifiedType(new TagType(@interface));
+                        tagType.Declaration = @interface;
                 }
             }
-            return type;
         }
     }
 }

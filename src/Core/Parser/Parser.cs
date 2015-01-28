@@ -1,11 +1,8 @@
 ﻿using System;
-
-#if !OLD_PARSER
-using CppSharp.Parser;
-using CppSharp.Parser.AST;
-#else
 using CppSharp.AST;
-#endif
+using CppSharp.Parser;
+using ASTContext = CppSharp.Parser.AST.ASTContext;
+using NativeLibrary = CppSharp.Parser.AST.NativeLibrary;
 
 namespace CppSharp
 {
@@ -37,10 +34,23 @@ namespace CppSharp
         }
 
         /// <summary>
+        /// Get info about that target
+        /// </summary>
+        /// <param name="options"></param>
+        /// <returns></returns>
+        public ParserTargetInfo GetTargetInfo(ParserOptions options)
+        {
+            options.ASTContext = ASTContext;
+
+            return Parser.ClangParser.GetTargetInfo(options);
+        }
+
+        /// <summary>
         /// Parses a C++ source file to a translation unit.
         /// </summary>
-        public ParserResult ParseSourceFile(SourceFile file, ParserOptions options)
+        public ParserResult ParseSourceFile(SourceFile file)
         {
+            var options = file.Options;
             options.ASTContext = ASTContext;
             options.FileName = file.Path;
 
@@ -53,13 +63,13 @@ namespace CppSharp
         /// <summary>
         /// Parses the project source files.
         /// </summary>
-        public void ParseProject(Project project, ParserOptions options)
+        public void ParseProject(Project project)
         {
             // TODO: Search for cached AST trees on disk
             // TODO: Do multi-threaded parsing of source files
 
             foreach (var source in project.Sources)
-                ParseSourceFile(source, options);
+                ParseSourceFile(source);
         }
 
         /// <summary>
@@ -75,7 +85,6 @@ namespace CppSharp
             return result;
         }
 
-#if !OLD_PARSER
         /// <summary>
         /// Converts a native parser AST to a managed AST.
         /// </summary>
@@ -87,13 +96,23 @@ namespace CppSharp
 
         public static AST.NativeLibrary ConvertLibrary(NativeLibrary library)
         {
-            var newLibrary = new AST.NativeLibrary { FileName = library.FileName };
+            var newLibrary = new AST.NativeLibrary
+            {
+                FileName = library.FileName,
+                ArchType = (ArchType) library.ArchType
+            };
 
-            foreach (var symbol in library.Symbols)
+            for (uint i = 0; i < library.SymbolsCount; ++i)
+            {
+                var symbol = library.getSymbols(i);
                 newLibrary.Symbols.Add(symbol);
+            }
+            for (uint i = 0; i < library.DependenciesCount; i++)
+            {
+                newLibrary.Dependencies.Add(library.getDependencies(i));
+            }
 
             return newLibrary;
         }
-#endif
     }
 }

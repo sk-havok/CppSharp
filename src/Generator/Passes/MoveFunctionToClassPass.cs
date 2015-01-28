@@ -10,20 +10,28 @@ namespace CppSharp.Passes
     {
         public override bool VisitFunctionDecl(Function function)
         {
-            if (AlreadyVisited(function) || function.Ignore || function.Namespace is Class)
-                return base.VisitFunctionDecl(function);
+            if (!VisitDeclaration(function))
+                return false;
 
-            Class @class = FindClassToMoveFunctionTo(function.Namespace);
+            if (!function.IsGenerated || function.Namespace is Class)
+                return false;
+
+            var @class = FindClassToMoveFunctionTo(function.Namespace);
             if (@class != null)
             {
                 MoveFunction(function, @class);
+                Log.Debug("Function moved to class: {0}::{1}", @class.Name, function.Name);
             }
-            return base.VisitFunctionDecl(function);
+
+            if (function.IsOperator)
+                function.ExplicitlyIgnore();
+
+            return true;
         }
 
         private Class FindClassToMoveFunctionTo(INamedDecl @namespace)
         {
-            TranslationUnit unit = @namespace as TranslationUnit;
+            var unit = @namespace as TranslationUnit;
             if (unit == null)
             {
                 return Driver.ASTContext.FindClass(
@@ -41,6 +49,8 @@ namespace CppSharp.Passes
                 IsStatic = true
             };
 
+            function.ExplicitlyIgnore();
+
             if (method.OperatorKind != CXXOperatorKind.None)
             {
                 var param = function.Parameters[0];
@@ -48,11 +58,9 @@ namespace CppSharp.Passes
                 if (!FunctionToInstanceMethodPass.GetClassParameter(param, out type))
                     return;
                 method.Kind = CXXMethodKind.Operator;
-                method.SynthKind = FunctionSynthKind.NonMemberOperator;
+                method.IsNonMemberOperator = true;
                 method.OriginalFunction = null;
             }
-
-            function.ExplicityIgnored = true;
 
             @class.Methods.Add(method);
         }

@@ -6,7 +6,7 @@ using Type = CppSharp.AST.Type;
 
 namespace CppSharp.Types
 {
-    public enum CppTypePrintKind
+    public enum CppTypePrintScopeKind
     {
         Local,
         Qualified,
@@ -15,11 +15,14 @@ namespace CppSharp.Types
 
     public class CppTypePrinter : ITypePrinter<string>, IDeclVisitor<string>
     {
-        public CppTypePrintKind PrintKind;
+        public CppTypePrintScopeKind PrintScopeKind;
+        public bool PrintLogicalNames;
+        public bool PrintTypeQualifiers;
 
-        public CppTypePrinter(ITypeMapDatabase database)
+        public CppTypePrinter(ITypeMapDatabase database, bool printTypeQualifiers = true)
         {
-            PrintKind = CppTypePrintKind.GlobalQualified;
+            PrintScopeKind = CppTypePrintScopeKind.GlobalQualified;
+            PrintTypeQualifiers = printTypeQualifiers;
         }
 
         public string VisitTagType(TagType tag, TypeQualifiers quals)
@@ -37,6 +40,7 @@ namespace CppSharp.Types
                 return string.Format("{0}[{1}]", typeName, array.Size);
             case ArrayType.ArraySize.Variable:
             case ArrayType.ArraySize.Dependent:
+            case ArrayType.ArraySize.Incomplete:
                 return string.Format("{0}[]", typeName);
             }
 
@@ -76,7 +80,7 @@ namespace CppSharp.Types
             var pointeeType = pointer.Pointee.Visit(this, quals);
             var mod = ConvertModifierToString(pointer.Modifier);
 
-            var s = quals.IsConst ? "const " : string.Empty;
+            var s = PrintTypeQualifiers && quals.IsConst ? "const " : string.Empty;
             s += string.Format("{0}{1}", pointeeType, mod);
 
             return s;
@@ -98,18 +102,23 @@ namespace CppSharp.Types
             {
                 case PrimitiveType.Bool: return "bool";
                 case PrimitiveType.Void: return "void";
-                case PrimitiveType.WideChar: return "char";
-                case PrimitiveType.Int8: return "char";
-                case PrimitiveType.UInt8: return "unsigned char";
-                case PrimitiveType.Int16: return "short";
-                case PrimitiveType.UInt16: return "unsigned short";
-                case PrimitiveType.Int32: return "int";
-                case PrimitiveType.UInt32: return "unsigned int";
-                case PrimitiveType.Int64: return "long long";
-                case PrimitiveType.UInt64: return "unsigned long long";
+                case PrimitiveType.Char16:
+                case PrimitiveType.WideChar: return "wchar_t";
+                case PrimitiveType.Char: return "char";
+                case PrimitiveType.UChar: return "unsigned char";
+                case PrimitiveType.Short: return "short";
+                case PrimitiveType.UShort: return "unsigned short";
+                case PrimitiveType.Int: return "int";
+                case PrimitiveType.UInt: return "unsigned int";
+                case PrimitiveType.Long: return "long";
+                case PrimitiveType.ULong: return "unsigned long";
+                case PrimitiveType.LongLong: return "long long";
+                case PrimitiveType.ULongLong: return "unsigned long long";
                 case PrimitiveType.Float: return "float";
                 case PrimitiveType.Double: return "double";
                 case PrimitiveType.IntPtr: return "void*";
+                case PrimitiveType.UIntPtr: return "uintptr_t";
+                case PrimitiveType.Null: return "std::nullptr_t";
             }
 
             throw new NotSupportedException();
@@ -123,21 +132,6 @@ namespace CppSharp.Types
         public string VisitAttributedType(AttributedType attributed, TypeQualifiers quals)
         {
             return attributed.Modified.Visit(this);
-        }
-
-        public string GetDeclName(Declaration declaration)
-        {
-            switch (PrintKind)
-            {
-            case CppTypePrintKind.Local:
-                return declaration.OriginalName;
-            case CppTypePrintKind.Qualified:
-                return declaration.QualifiedOriginalName;
-            case CppTypePrintKind.GlobalQualified:
-                return "::" + declaration.QualifiedOriginalName;
-            }
-
-            throw new NotSupportedException();
         }
 
         public string VisitDecayedType(DecayedType decayed, TypeQualifiers quals)
@@ -175,7 +169,12 @@ namespace CppSharp.Types
 
         public string VisitDependentNameType(DependentNameType dependent, TypeQualifiers quals)
         {
-            throw new System.NotImplementedException();
+            return string.Empty;
+        }
+
+        public string VisitPackExpansionType(PackExpansionType packExpansionType, TypeQualifiers quals)
+        {
+            return string.Empty;
         }
 
         public string VisitCILType(CILType type, TypeQualifiers quals)
@@ -232,6 +231,24 @@ namespace CppSharp.Types
             throw new System.NotImplementedException();
         }
 
+        public string GetDeclName(Declaration declaration)
+        {
+            switch (PrintScopeKind)
+            {
+            case CppTypePrintScopeKind.Local:
+                return PrintLogicalNames ? declaration.LogicalOriginalName
+                    : declaration.OriginalName;
+            case CppTypePrintScopeKind.Qualified:
+                return PrintLogicalNames ? declaration.QualifiedLogicalOriginalName
+                    : declaration.QualifiedOriginalName;
+            case CppTypePrintScopeKind.GlobalQualified:
+                return "::" + (PrintLogicalNames ? declaration.QualifiedLogicalOriginalName
+                    : declaration.QualifiedOriginalName);
+            }
+
+            throw new NotSupportedException();
+        }
+
         public string VisitDeclaration(Declaration decl)
         {
             return GetDeclName(decl);
@@ -239,7 +256,7 @@ namespace CppSharp.Types
 
         public string VisitClassDecl(Class @class)
         {
-            return GetDeclName(@class);
+            return VisitDeclaration(@class);
         }
 
         public string VisitFieldDecl(Field field)
@@ -305,6 +322,11 @@ namespace CppSharp.Types
         public string VisitProperty(Property property)
         {
             return VisitDeclaration(property);
+        }
+
+        public string VisitFriend(Friend friend)
+        {
+            throw new NotImplementedException();
         }
 
         public string ToString(Type type)

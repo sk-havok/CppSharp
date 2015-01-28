@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using CppSharp.AST;
+using CppSharp.AST.Extensions;
 
 namespace CppSharp.Passes
 {
@@ -12,6 +13,19 @@ namespace CppSharp.Passes
     /// </summary>
     public abstract class RenamePass : TranslationUnitPass
     {
+        public class ParameterComparer : IEqualityComparer<Parameter>
+        {
+            public bool Equals(Parameter x, Parameter y)
+            {
+                return x.QualifiedType == y.QualifiedType && x.GenerationKind == y.GenerationKind;
+            }
+
+            public int GetHashCode(Parameter obj)
+            {
+                return obj.Type.GetHashCode();
+            }
+        }
+
         public RenameTargets Targets = RenameTargets.Any;
 
         protected RenamePass()
@@ -40,6 +54,8 @@ namespace CppSharp.Passes
             if (decl is Property) return true;
             if (decl is Event) return true;
             if (decl is TypedefDecl) return true;
+            if (decl is Namespace && !(decl is TranslationUnit)) return true;
+            if (decl is Variable) return true;
             return false;
         }
 
@@ -62,13 +78,11 @@ namespace CppSharp.Passes
 
         public override bool VisitDeclaration(Declaration decl)
         {
+            if (AlreadyVisited(decl))
+                return false;
+
             if (!IsRenameableDecl(decl))
                 return true;
-
-            if (AlreadyVisited(decl))
-                return true;
-
-            Visited.Add(decl);
 
             if (decl.Name == null)
                 return true;
@@ -86,19 +100,45 @@ namespace CppSharp.Passes
 
         private static bool AreThereConflicts(Declaration decl, string newName)
         {
-            List<Declaration> declarations = new List<Declaration>();
-            declarations.AddRange(decl.Namespace.Classes);
+            var declarations = new List<Declaration>();
+            declarations.AddRange(decl.Namespace.Classes.Where(c => !c.IsIncomplete));
             declarations.AddRange(decl.Namespace.Enums);
             declarations.AddRange(decl.Namespace.Events);
-            declarations.AddRange(decl.Namespace.Functions);
+            var function = decl as Function;
+            if (function != null)
+            {
+                // account for overloads
+                declarations.AddRange(GetFunctionsWithTheSameParams(function));
+            }
+            else
+                declarations.AddRange(decl.Namespace.Functions);
             declarations.AddRange(decl.Namespace.Variables);
-            bool result = declarations.Any(d => d != decl && d.Name == newName);
+            declarations.AddRange(from typedefDecl in decl.Namespace.Typedefs
+                                  let pointerType = typedefDecl.Type.Desugar() as PointerType
+                                  where pointerType != null && pointerType.Pointee is FunctionType
+                                  select typedefDecl);
+
+            var result = declarations.Any(d => d != decl && d.Name == newName);
             if (result)
                 return true;
-            Method method = decl as Method;
+
+            var method = decl as Method;
             if (method == null || !method.IsGenerated)
                 return false;
+
             return ((Class) method.Namespace).GetPropertyByName(newName) != null;
+        }
+
+        private static IEnumerable<Function> GetFunctionsWithTheSameParams(Function function)
+        {
+            var method = function as Method;
+            if (method != null)
+            {
+                return ((Class) method.Namespace).Methods.Where(
+                    m => m.Parameters.SequenceEqual(function.Parameters, new ParameterComparer()));
+            }
+            return function.Namespace.Functions.Where(
+                f => f.Parameters.SequenceEqual(function.Parameters, new ParameterComparer()));
         }
 
         public override bool VisitEnumItem(Enumeration.Item item)
@@ -174,6 +214,14 @@ namespace CppSharp.Passes
 
             return base.VisitEvent(@event);
         }
+
+        public override bool VisitVariableDecl(Variable variable)
+        {
+            if (!Targets.HasFlag(RenameTargets.Variable))
+                return false;
+
+            return base.VisitVariableDecl(variable);
+        }
     }
 
     [Flags]
@@ -189,7 +237,8 @@ namespace CppSharp.Passes
         Event     = 1 << 7,
         Property  = 1 << 8,
         Delegate  = 1 << 9,
-        Any = Function | Method | Parameter | Class | Field | Enum | EnumItem | Event | Property | Delegate,
+        Variable  = 1 << 10,
+        Any = Function | Method | Parameter | Class | Field | Enum | EnumItem | Event | Property | Delegate | Variable
     }
 
     /// <summary>
@@ -272,6 +321,10 @@ namespace CppSharp.Passes
         /// <returns>string</returns>
         static string ConvertCaseString(string phrase, RenameCasePattern pattern)
         {
+            // check if it's been renamed to avoid a keyword
+            if (phrase.StartsWith("@"))
+                phrase = phrase.Substring(1);
+
             var splittedPhrase = phrase.Split(' ', '-', '.');
             var sb = new StringBuilder();
 

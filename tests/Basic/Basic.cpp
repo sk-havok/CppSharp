@@ -1,6 +1,16 @@
 #include "Basic.h"
+#include <string.h>
 
 Foo::Foo()
+{
+    auto p = new int[4];
+    for (int i = 0; i < 4; i++)
+        p[i] = i;
+    SomePointer = p;
+    SomePointerPointer = &SomePointer;
+}
+
+Foo::Foo(Private p)
 {
 }
 
@@ -9,18 +19,38 @@ const char* Foo::GetANSI()
 	return "ANSI";
 }
 
+void Foo::TakesTypedefedPtr(FooPtr date)
+{
+}
+
+bool Foo::operator ==(const Foo& other) const
+{
+    return A == other.A && B == other.B;
+}
+
+Foo2::Foo2() {}
+
 Foo2 Foo2::operator<<(signed int i)
 {
     Foo2 foo;
     foo.C = C << i;
+    foo.valueTypeField = valueTypeField;
+    foo.valueTypeField.A <<= i;
     return foo;
 }
 
 Foo2 Foo2::operator<<(signed long l)
 {
-    Foo2 foo;
-    foo.C = C << l;
-    return foo;
+    return *this << (signed int) l;
+}
+
+char Foo2::testCharMarshalling(char c)
+{
+    return c;
+}
+
+void Foo2::testKeywordParam(void* where)
+{
 }
 
 Bar::Bar()
@@ -35,6 +65,11 @@ Bar::Item Bar::RetItem1()
 Bar* Bar::returnPointerToValueType()
 {
     return this;
+}
+
+bool Bar::operator ==(const Bar& other) const
+{
+    return A == other.A && B == other.B;
 }
 
 Bar2::Nested::operator int() const
@@ -107,6 +142,11 @@ int Hello::AddFooPtr(Foo* foo)
     return AddFoo(*foo);
 }
 
+int Hello::AddFooPtrRef(Foo*& foo)
+{
+    return AddFoo(*foo);
+}
+
 int Hello::AddFoo2(Foo2 foo)
 {
     return (int)(foo.A + foo.B + foo.C);
@@ -152,6 +192,66 @@ bool Hello::TestPrimitiveOutRef(CS_OUT float& f)
     return true;
 }
 
+bool Hello::TestPrimitiveInOut(CS_IN_OUT int* i)
+{
+    *i += 10;
+    return true;
+}
+
+bool Hello::TestPrimitiveInOutRef(CS_IN_OUT int& i)
+{
+    i += 10;
+    return true;
+}
+
+void Hello::EnumOut(int value, CS_OUT Enum* e)
+{
+    *e = (Enum)value;
+}
+
+void Hello::EnumOutRef(int value, CS_OUT Enum& e)
+{
+    e = (Enum)value;
+}
+
+void Hello::EnumInOut(CS_IN_OUT Enum* e)
+{
+	if (*e == Enum::E)
+		*e = Enum::F;
+}
+
+void Hello::EnumInOutRef(CS_IN_OUT Enum& e)
+{
+	if (e == Enum::E)
+		e = Enum::F;
+}
+
+void Hello::StringOut(CS_OUT const char** str)
+{
+	*str = "HelloStringOut";
+}
+
+void Hello::StringOutRef(CS_OUT const char*& str)
+{
+	str = "HelloStringOutRef";
+}
+
+void Hello::StringInOut(CS_IN_OUT const char** str)
+{
+	if (strcmp(*str, "Hello") == 0)
+		*str = "StringInOut";
+	else
+		*str = "Failed";
+}
+
+void Hello::StringInOutRef(CS_IN_OUT const char*& str)
+{
+	if (strcmp(str, "Hello") == 0)
+		str = "StringInOutRef";
+	else
+		str = "Failed";
+}
+
 int unsafeFunction(const Bar& ret, char* testForString, void (*foo)(int))
 {
     return ret.A;
@@ -160,22 +260,6 @@ int unsafeFunction(const Bar& ret, char* testForString, void (*foo)(int))
 const wchar_t* wcharFunction(const wchar_t* constWideChar)
 {
     return constWideChar;
-}
-
-Bar operator-(const Bar& b)
-{
-    Bar nb;
-    nb.A = -b.A;
-    nb.B = -b.B;
-    return nb;
-}
-
-Bar operator+(const Bar& b1, const Bar& b2)
-{
-    Bar b;
-    b.A = b1.A + b2.A;
-    b.B = b1.B + b2.B;
-    return b;
 }
 
 Bar indirectReturn()
@@ -197,6 +281,8 @@ int ImplementsAbstractFoo::pureFunction2()
 {
     return 15;
 }
+
+ReturnsAbstractFoo::ReturnsAbstractFoo() {}
 
 const AbstractFoo& ReturnsAbstractFoo::getFoo()
 {
@@ -222,4 +308,62 @@ void DefaultParameters::Bar()
 int test(basic& s)
 {
     return 5;
+}
+
+Bar::Item operator |(Bar::Item left, Bar::Item right)
+{
+    return left | right;
+}
+
+void va_listFunction(va_list v)
+{
+}
+
+void TestDelegates::MarshalUnattributedDelegate(DelegateInGlobalNamespace del)
+{
+}
+
+std::string HasStdString::testStdString(std::string s)
+{
+    return s + "_test";
+}
+
+InternalCtorAmbiguity::InternalCtorAmbiguity(void* param)
+{
+    // cause a crash to indicate this is the incorrect ctor to invoke
+    throw;
+}
+
+InvokesInternalCtorAmbiguity::InvokesInternalCtorAmbiguity() : ptr(0)
+{
+}
+
+InternalCtorAmbiguity* InvokesInternalCtorAmbiguity::InvokeInternalCtor()
+{
+    return ptr;
+}
+
+HasFriend::HasFriend(int m)
+{
+    this->m = m;
+}
+
+int HasFriend::getM()
+{
+    return m;
+}
+
+DLL_API inline const HasFriend operator+(const HasFriend& f1, const HasFriend& f2)
+{
+    return HasFriend(f1.m + f2.m);
+}
+
+bool DifferentConstOverloads::operator ==(const DifferentConstOverloads& other)
+{
+    return true;
+}
+
+bool DifferentConstOverloads::operator ==(int number) const
+{
+    return false;
 }

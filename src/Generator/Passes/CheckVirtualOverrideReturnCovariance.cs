@@ -1,4 +1,5 @@
 ﻿using CppSharp.AST;
+using CppSharp.AST.Extensions;
 
 namespace CppSharp.Passes
 {
@@ -151,6 +152,11 @@ namespace CppSharp.Passes
             return false;
         }
 
+        public bool VisitPackExpansionType(PackExpansionType packExpansionType, TypeQualifiers quals)
+        {
+            return true;
+        }
+
         public bool VisitCILType(CILType type, TypeQualifiers quals)
         {
             return false;
@@ -231,6 +237,11 @@ namespace CppSharp.Passes
             return false;
         }
 
+        public bool VisitFriend(Friend friend)
+        {
+            return false;
+        }
+
         #endregion
     }
 
@@ -247,7 +258,7 @@ namespace CppSharp.Passes
     {
         public override bool VisitMethodDecl(AST.Method method)
         {
-            if (AlreadyVisited(method))
+            if (!VisitDeclaration(method))
                 return false;
 
             if (!method.IsOverride)

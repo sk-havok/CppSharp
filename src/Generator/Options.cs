@@ -4,11 +4,8 @@ using System.IO;
 using System.Text;
 using CppSharp.AST;
 using CppSharp.Generators;
-
-#if !OLD_PARSER
 using CppSharp.Parser;
 using CppAbi = CppSharp.Parser.AST.CppAbi;
-#endif
 
 namespace CppSharp
 {
@@ -37,6 +34,7 @@ namespace CppSharp
             GeneratorKind = GeneratorKind.CSharp;
             GenerateLibraryNamespace = true;
             GeneratePartialClasses = true;
+            GenerateClassMarshals = false;
             OutputInteropIncludes = true;
             MaxIndent = 80;
             CommentPrefix = "///";
@@ -44,6 +42,8 @@ namespace CppSharp
             Encoding = Encoding.ASCII;
 
             CodeFiles = new List<string>();
+
+            StripLibPrefix = true;
         }
 
         // General options
@@ -51,12 +51,20 @@ namespace CppSharp
         public bool ShowHelpText;
         public bool OutputDebug;
 
+        /// <summary>
+        /// Set to true to simulate generating without actually writing
+        /// any output to disk. This can be useful to activate while
+        /// debugging the parser generator so generator bugs do not get
+        /// in the way while iterating.
+        /// </summary>
+        public bool DryRun;
+
         // Parser options
         public List<string> Headers;
         public bool IgnoreParseWarnings;
         public bool IgnoreParseErrors;
 
-        public bool IsItaniumAbi { get { return Abi == CppAbi.Itanium; } }
+        public bool IsItaniumLikeAbi { get { return Abi != CppAbi.Microsoft; } }
         public bool IsMicrosoftAbi { get { return Abi == CppAbi.Microsoft; } }
 
         // Library options
@@ -87,8 +95,54 @@ namespace CppSharp
         public bool GenerateVirtualTables;
         public bool GenerateAbstractImpls;
         public bool GenerateInterfacesForMultipleInheritance;
-        public bool GenerateProperties;
         public bool GenerateInternalImports;
+        public bool GenerateClassMarshals;
+        public bool GenerateInlines;
+        public bool GenerateCopyConstructors;
+        public bool UseHeaderDirectories;
+
+        /// <summary>
+        /// If set to true the generator will use GetterSetterToPropertyPass to
+        /// convert matching getter/setter pairs to properties.
+        /// </summary>
+        public bool GenerateProperties;
+
+        /// <summary>
+        /// If set to true the generator will use GetterSetterToPropertyAdvancedPass to
+        /// convert matching getter/setter pairs to properties. This pass has slightly
+        /// different semantics from GetterSetterToPropertyPass, it will more agressively
+        /// try to match for matching properties.
+        /// </summary>
+        public bool GeneratePropertiesAdvanced;
+
+        /// <summary>
+        /// If set to true the generator will use ConstructorToConversionOperatorPass to
+        /// create implicit and explicit conversion operators out of single argument
+        /// constructors.
+        /// </summary>
+        public bool GenerateConversionOperators;
+
+        /// <summary>
+        /// If set to true the CLI generator will use ObjectOverridesPass to create
+        /// Equals, GetHashCode and (if the insertion operator << is overloaded) ToString
+        /// methods.
+        /// </summary>
+        public bool GenerateObjectOverrides;
+
+        //List of include directories that are used but not generated
+        public List<string> NoGenIncludeDirs;
+
+        /// <summary>
+        /// Wether the generated C# code should be automatically compiled.
+        /// </summary>
+        public bool CompileCode;
+
+        /// <summary>
+        /// Enable this option to enable generation of finalizers.
+        /// Works in both CLI and C# backends.
+        /// </summary>
+        public bool GenerateFinalizers;
+
         public string IncludePrefix;
         public bool WriteOnlyWhenChanged;
         public Func<TranslationUnit, string> GenerateName;
@@ -121,9 +175,20 @@ namespace CppSharp
             get { return GeneratorKind == GeneratorKind.CLI; }
         }
 
-        public bool Is32Bit { get { return true; } }
-
         public List<string> CodeFiles { get; private set; }
+        public readonly List<string> DependentNameSpaces = new List<string>();
+        public bool MarshalCharAsManagedChar { get; set; }
+        /// <summary>
+        /// Generates a single C# file.
+        /// </summary>
+        public bool GenerateSingleCSharpFile { get; set; }
+
+        /// <summary>
+        /// Generates default values of arguments in the C# code.
+        /// </summary>
+        public bool GenerateDefaultValuesForArguments { get; set; }
+
+        public bool StripLibPrefix { get; set; }
     }
 
     public class InvalidOptionException : Exception

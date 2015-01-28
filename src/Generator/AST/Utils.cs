@@ -1,23 +1,25 @@
 ﻿
 using System;
+using System.Linq;
+using Mono.Options;
 
 namespace CppSharp.AST
 {
     public static class ASTUtils
     {
-        public static bool CheckIgnoreFunction(Function function)
+        public static bool CheckIgnoreFunction(Function function, DriverOptions options)
         {
-            if (function.Ignore) return true;
+            if (!function.IsGenerated) return true;
 
             if (function is Method)
-                return CheckIgnoreMethod(function as Method);
+                return CheckIgnoreMethod(function as Method, options);
 
             return false;
         }
 
-        public static bool CheckIgnoreMethod(Method method)
+        public static bool CheckIgnoreMethod(Method method, DriverOptions options)
         {
-            if (method.Ignore) return true;
+            if (!method.IsGenerated) return true;
 
             var isEmptyCtor = method.IsConstructor && method.Parameters.Count == 0;
 
@@ -25,7 +27,7 @@ namespace CppSharp.AST
             if (@class != null && @class.IsValueType && isEmptyCtor)
                 return true;
 
-            if (method.IsCopyConstructor || method.IsMoveConstructor)
+            if (method.IsMoveConstructor)
                 return true;
 
             if (method.IsDestructor)
@@ -34,18 +36,53 @@ namespace CppSharp.AST
             if (method.OperatorKind == CXXOperatorKind.Equal)
                 return true;
 
-            if (method.Access == AccessSpecifier.Private && !method.IsOverride)
+            if (method.Access == AccessSpecifier.Private && !method.IsOverride && !method.IsExplicitlyGenerated)
                 return true;
+
+            //Ignore copy constructor if a base class don't has or has a private copy constructor
+            if (method.IsCopyConstructor)
+            {
+                if (!options.GenerateCopyConstructors)
+                    return true;
+
+                var baseClass = @class;
+                while (baseClass != null && baseClass.HasBaseClass)
+                {
+                    baseClass = baseClass.BaseClass;
+                    if (!baseClass.IsInterface)
+                    {
+                        var copyConstructor = baseClass.Methods.FirstOrDefault(m => m.IsCopyConstructor);
+                        if (copyConstructor == null
+                            || copyConstructor.Access == AccessSpecifier.Private
+                            || !copyConstructor.IsDeclared)
+                            return true;   
+                    }
+                }
+            }
 
             return false;
         }
 
-        public static bool CheckIgnoreField(Field field)
+        public static bool CheckIgnoreField(Field field, bool useInternals = false)
         {
-            if (field.Access == AccessSpecifier.Private) 
+            if (field.Access == AccessSpecifier.Private && !useInternals) 
                 return true;
 
-            return field.Ignore;
+            if (field.Class.IsValueType && field.IsDeclared)
+                return false;
+
+            return !field.IsGenerated && (!useInternals || !field.IsInternal);
+        }
+
+        public static bool CheckIgnoreProperty(Property prop)
+        {
+            if (prop.Access == AccessSpecifier.Private)
+                return true;
+
+            if (prop.Field != null && prop.Field.Class.IsValueType && prop.IsDeclared)
+                return false;
+
+            return !prop.IsGenerated;
         }
     }
 
@@ -166,6 +203,8 @@ namespace CppSharp.AST
 
                 case CXXOperatorKind.Conversion:
                     return "implicit operator";
+                case CXXOperatorKind.ExplicitConversion:
+                    return "explicit operator";
             }
 
             throw new NotSupportedException();

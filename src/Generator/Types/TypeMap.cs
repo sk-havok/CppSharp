@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using CppSharp.AST;
+using CppSharp.AST.Extensions;
 using CppSharp.Generators;
 using CppSharp.Generators.AST;
 using CppSharp.Generators.CLI;
@@ -14,10 +15,17 @@ namespace CppSharp.Types
     public class TypeMapAttribute : Attribute
     {
         public string Type { get; private set; }
+        public GeneratorKind? GeneratorKind { get; set; }
         
         public TypeMapAttribute(string type)
         {
             Type = type;
+        }
+
+        public TypeMapAttribute(string type, GeneratorKind generatorKind)
+        {
+            Type = type;
+            GeneratorKind = generatorKind;
         }
     }
 
@@ -42,7 +50,17 @@ namespace CppSharp.Types
             get { return false; }
         }
 
+        /// <summary>
+        /// Determines if the type map performs marshalling or only injects custom code.
+        /// </summary>
+        public virtual bool DoesMarshalling { get { return true; } }
+
         #region C# backend
+
+        public virtual Type CSharpSignatureType(CSharpTypePrinterContext ctx)
+        {
+            return new CILType(typeof(object));
+        }
 
         public virtual string CSharpSignature(CSharpTypePrinterContext ctx)
         {
@@ -59,9 +77,23 @@ namespace CppSharp.Types
             throw new NotImplementedException();
         }
 
+        /// <summary>
+        /// Used to construct a new instance of the mapped type.
+        /// </summary>
+        /// <returns></returns>
+        public virtual string CSharpConstruct()
+        {
+            return null;
+        }
+
         #endregion
 
         #region C++/CLI backend
+
+        public virtual Type CLISignatureType(CLITypePrinterContext ctx)
+        {
+            return new CILType(typeof(object));
+        }
 
         public virtual string CLISignature(CLITypePrinterContext ctx)
         {
@@ -102,27 +134,28 @@ namespace CppSharp.Types
             TypeMaps = new Dictionary<string, System.Type>();
         }
 
-        public void SetupTypeMaps()
+        public void SetupTypeMaps(GeneratorKind generatorKind)
         {
             var loadedAssemblies = AppDomain.CurrentDomain.GetAssemblies();
 
             foreach (var assembly in loadedAssemblies)
             {
                 var types = assembly.FindDerivedTypes(typeof(TypeMap));
-                SetupTypeMaps(types);
+                SetupTypeMaps(types, generatorKind);
             }
         }
 
-        private void SetupTypeMaps(IEnumerable<System.Type> types)
+        private void SetupTypeMaps(IEnumerable<System.Type> types, GeneratorKind generatorKind)
         {
             foreach (var typeMap in types)
             {
                 var attrs = typeMap.GetCustomAttributes(typeof(TypeMapAttribute), true);
-                if (attrs == null) continue;
-
                 foreach (TypeMapAttribute attr in attrs)
                 {
-                    TypeMaps[attr.Type] = typeMap;
+                    if (attr.GeneratorKind == null || attr.GeneratorKind == generatorKind)
+                    {
+                        TypeMaps[attr.Type] = typeMap;                        
+                    }
                 }
             }
         }
@@ -134,7 +167,8 @@ namespace CppSharp.Types
 
             var typePrinter = new CppTypePrinter(this)
                 {
-                    PrintKind = CppTypePrintKind.GlobalQualified
+                    PrintScopeKind = CppTypePrintScopeKind.GlobalQualified,
+                    PrintLogicalNames = true
                 };
 
             if (FindTypeMap(decl.Visit(typePrinter), out typeMap))
@@ -143,14 +177,14 @@ namespace CppSharp.Types
                 return true;
             }
 
-            typePrinter.PrintKind = CppTypePrintKind.Qualified;
+            typePrinter.PrintScopeKind = CppTypePrintScopeKind.Qualified;
             if (FindTypeMap(decl.Visit(typePrinter), out typeMap))
             {
                 typeMap.Type = type;
                 return true;
             }
 
-            typePrinter.PrintKind = CppTypePrintKind.Local;
+            typePrinter.PrintScopeKind = CppTypePrintScopeKind.Local;
             if (FindTypeMap(decl.Visit(typePrinter), out typeMap))
             {
                 typeMap.Type = type;
@@ -162,12 +196,6 @@ namespace CppSharp.Types
 
         public bool FindTypeMap(Type type, out TypeMap typeMap)
         {
-            if (type.IsDependent)
-            {
-                typeMap = null;
-                return false;
-            }
-
             var typePrinter = new CppTypePrinter(this);
 
             var template = type as TemplateSpecializationType;
@@ -181,7 +209,7 @@ namespace CppSharp.Types
                 return true;
             }
 
-            typePrinter.PrintKind = CppTypePrintKind.Qualified;
+            typePrinter.PrintScopeKind = CppTypePrintScopeKind.Qualified;
             if (FindTypeMap(type.Visit(typePrinter), out typeMap))
             {
                 typeMap.Type = type;

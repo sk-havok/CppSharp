@@ -5,7 +5,7 @@ using CppSharp.Utils;
 
 namespace CppSharp.Tests
 {
-    public class VTableTests : LibraryTest
+    public class VTableTests : GeneratorTest
     {
         public VTableTests(GeneratorKind kind)
             : base("VTables", kind)
@@ -19,7 +19,7 @@ namespace CppSharp.Tests
             driver.TranslationUnitPasses.AddPass(new FunctionToInstanceMethodPass());
         }
 
-        public override void Preprocess(Driver driver, ASTContext lib)
+        public override void Preprocess(Driver driver, ASTContext ctx)
         {
 
         }

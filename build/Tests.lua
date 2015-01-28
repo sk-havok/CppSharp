@@ -7,19 +7,16 @@ function SetupExampleProject()
   
   files { "**.cs", "./*.lua" }
   links { "CppSharp.AST", "CppSharp.Generator" }
+
+  SetupManagedProject()
   SetupParser()
-
-  location (path.join(builddir, "projects"))
-
-  configuration "vs*"
-    location "."
 end
 
 function SetupTestProject(name, file, lib)
   SetupTestGeneratorProject(name)
   SetupTestNativeProject(name)  
-  SetupTestProjectsCSharp(name, file, lib)
-  --SetupTestProjectsCLI(name, file, lib)
+  SetupTestProjectsCSharp(name)
+  SetupTestProjectsCLI(name)
 end
 
 function SetupTestCSharp(name)
@@ -38,10 +35,7 @@ function SetupManagedTestProject()
     kind "SharedLib"
     language "C#"  
     flags { "Unsafe" }
-
-    local c = configuration "vs*"
-      location "."
-    configuration(c)
+    SetupManagedProject()
 end
 
 function SetupTestGeneratorProject(name)
@@ -55,19 +49,30 @@ function SetupTestGeneratorProject(name)
 
     links
     {
+      "System.Core",
       "CppSharp.AST",
       "CppSharp.Generator",
+      "CppSharp.Generator.Tests"
     }
 
     SetupParser()
 end
 
 function SetupTestGeneratorBuildEvent(name)
-  local exePath = SafePath("$(TargetDir)" .. name .. ".Gen.exe")
-  prebuildcommands { exePath }
+  if string.starts(action, "vs") then
+    local exePath = SafePath("$(TargetDir)" .. name .. ".Gen.exe")
+    prebuildcommands { exePath }
+  else
+    local exePath = SafePath("%{cfg.buildtarget.directory}/" .. name .. ".Gen.exe")
+    prebuildcommands { "mono --debug " .. exePath }
+  end
 end
 
-function SetupTestNativeProject(name)
+function SetupTestNativeProject(name, depends)
+  if string.starts(action, "vs") and not os.is_windows() then
+    return
+  end
+
   project(name .. ".Native")
 
     SetupNativeProject()
@@ -77,6 +82,10 @@ function SetupTestNativeProject(name)
 
     flags { common_flags }
     files { "**.h", "**.cpp" }
+
+    if depends ~= nil then
+      links { depends }
+    end
 end
 
 function LinkNUnit()
@@ -88,12 +97,12 @@ function LinkNUnit()
 
   links
   {
-    "NUnit.Framework",
+    "nunit.framework",
     "NSubstitute"
   }
 end
 
-function SetupTestProjectsCSharp(name, file, lib)
+function SetupTestProjectsCSharp(name, depends)
   project(name .. ".CSharp")
     SetupManagedTestProject()
 
@@ -105,20 +114,30 @@ function SetupTestProjectsCSharp(name, file, lib)
       path.join(gendir, name, name .. ".cs"),
     }
 
-    links { "CppSharp.Runtime" }
+    linktable = { "CppSharp.Runtime" }
+
+    if depends ~= nil then
+      table.insert(linktable, depends)
+    end
+
+    links(linktable)
 
   project(name .. ".Tests.CSharp")
     SetupManagedTestProject()
 
     files { name .. ".Tests.cs" }
-    links { name .. ".CSharp" }
+    links { name .. ".CSharp", "CppSharp.Generator.Tests" }
     dependson { name .. ".Native" }
 
     LinkNUnit()
     links { "CppSharp.Runtime" }
 end
 
-function SetupTestProjectsCLI(name, file, lib)
+function SetupTestProjectsCLI(name)
+  if not os.is_windows() then
+    return
+  end
+
   project(name .. ".CLI")
     SetupNativeProject()
 
@@ -142,7 +161,7 @@ function SetupTestProjectsCLI(name, file, lib)
     SetupManagedTestProject()
 
     files { name .. ".Tests.cs" }
-    links { name .. ".CLI" }
+    links { name .. ".CLI", "CppSharp.Generator.Tests" }
     dependson { name .. ".Native" }
 
     LinkNUnit()

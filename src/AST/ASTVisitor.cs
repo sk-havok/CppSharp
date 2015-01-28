@@ -17,6 +17,7 @@ namespace CppSharp.AST
 
     public class AstVisitorOptions
     {
+        public bool VisitDeclaration = true;
         public bool VisitClassBases = true;
         public bool VisitClassFields = true;
         public bool VisitClassProperties = true;
@@ -83,7 +84,7 @@ namespace CppSharp.AST
             if (array.SizeType == ArrayType.ArraySize.Dependent)
                 return false;
 
-            return array.Type.Visit(this, quals);
+            return array.QualifiedType.Visit(this);
         }
 
         public virtual bool VisitFunctionType(FunctionType function, TypeQualifiers quals)
@@ -118,7 +119,7 @@ namespace CppSharp.AST
             if (!VisitType(member, quals))
                 return false;
 
-            return member.Pointee.Visit(this, quals);
+            return member.QualifiedPointee.Visit(this);
         }
 
         public virtual bool VisitBuiltinType(BuiltinType builtin, TypeQualifiers quals)
@@ -216,6 +217,11 @@ namespace CppSharp.AST
             return true;
         }
 
+        public bool VisitPackExpansionType(PackExpansionType packExpansionType, TypeQualifiers quals)
+        {
+            return true;
+        }
+
         public virtual bool VisitPrimitiveType(PrimitiveType type, TypeQualifiers quals)
         {
             return true;
@@ -240,17 +246,11 @@ namespace CppSharp.AST
 
         public virtual bool VisitDeclaration(Declaration decl)
         {
-            return true;
+            return !AlreadyVisited(decl);
         }
 
         public virtual bool VisitClassDecl(Class @class)
         {
-            if (AlreadyVisited(@class))
-                return true;
-
-            if (!VisitDeclaration(@class))
-                return false;
-
             if (!VisitDeclarationContext(@class))
                 return false;
 
@@ -293,6 +293,14 @@ namespace CppSharp.AST
             return property.Type.Visit(this);
         }
 
+        public bool VisitFriend(Friend friend)
+        {
+            if (!VisitDeclaration(friend))
+                return false;
+
+            return friend.Declaration.Visit(this);
+        }
+
         public virtual bool VisitFunctionDecl(Function function)
         {
             if (!VisitDeclaration(function))
@@ -307,7 +315,7 @@ namespace CppSharp.AST
                     param.Visit(this);
 
             return true;
-        }    
+        }
 
         public virtual bool VisitMethodDecl(Method method)
         {
@@ -346,6 +354,9 @@ namespace CppSharp.AST
 
         public virtual bool VisitVariableDecl(Variable variable)
         {
+            if (!VisitDeclaration(variable))
+                return false;
+
             return variable.Type.Visit(this, variable.QualifiedType.Qualifiers);
         }
 

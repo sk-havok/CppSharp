@@ -68,13 +68,15 @@ namespace CppSharp.Passes
 
             @interface.Methods.AddRange(
                 from m in @base.Methods
-                where !m.IsConstructor && !m.IsDestructor && !m.IsStatic && !m.Ignore && !m.IsOperator
+                where !m.IsConstructor && !m.IsDestructor && !m.IsStatic && m.IsDeclared && !m.IsOperator
                 select new Method(m) { Namespace = @interface });
 
             @interface.Properties.AddRange(
                 from property in @base.Properties
-                where !property.Ignore
+                where property.IsDeclared
                 select new Property(property) { Namespace = @interface });
+
+            @interface.Fields.AddRange(@base.Fields);
 
             if (@interface.Bases.Count == 0)
             {
@@ -82,7 +84,11 @@ namespace CppSharp.Passes
                 instance.Namespace = @interface;
                 instance.Name = Helpers.InstanceIdentifier;
                 instance.QualifiedType = new QualifiedType(new BuiltinType(PrimitiveType.IntPtr));
-                instance.GetMethod = new Method { Namespace = @interface };
+                instance.GetMethod = new Method
+                {
+                    SynthKind = FunctionSynthKind.InterfaceInstance,
+                    Namespace = @interface
+                };
                 @interface.Properties.Add(instance);
             }
 
@@ -111,7 +117,7 @@ namespace CppSharp.Passes
                         IsOverride = false
                     };
                 var rootBaseMethod = @class.GetRootBaseMethod(method, true);
-                if (rootBaseMethod != null && !rootBaseMethod.Ignore)
+                if (rootBaseMethod != null && rootBaseMethod.IsDeclared)
                     impl.ExplicitInterfaceImpl = @interface;
                 @class.Methods.Add(impl);
             }
@@ -125,7 +131,7 @@ namespace CppSharp.Passes
             {
                 var impl = new Property(property) { Namespace = @class };
                 var rootBaseProperty = @class.GetRootBaseProperty(property, true);
-                if (rootBaseProperty != null && !rootBaseProperty.Ignore)
+                if (rootBaseProperty != null && rootBaseProperty.IsDeclared)
                     impl.ExplicitInterfaceImpl = @interface;
                 @class.Properties.Add(impl);
             }

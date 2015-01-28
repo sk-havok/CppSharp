@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using CppSharp.AST;
+using CppSharp.AST.Extensions;
+using CppSharp.Generators.CSharp;
 using CppSharp.Types;
 using Type = CppSharp.AST.Type;
 
@@ -43,6 +45,14 @@ namespace CppSharp.Generators.CLI
 
         public string VisitTagType(TagType tag, TypeQualifiers quals)
         {
+            TypeMap typeMap = null;
+            if (TypeMapDatabase.FindTypeMap(tag, out typeMap))
+            {
+                typeMap.Type = tag;
+                Context.Type = tag;
+                return typeMap.CLISignature(Context);
+            }
+
             Declaration decl = tag.Declaration;
 
             if (decl == null)
@@ -98,6 +108,8 @@ namespace CppSharp.Generators.CLI
             var str = string.Empty;
             if(param.Usage == ParameterUsage.Out)
                 str += "[System::Runtime::InteropServices::Out] ";
+            else if (param.Usage == ParameterUsage.InOut)
+                str += "[System::Runtime::InteropServices::In, System::Runtime::InteropServices::Out] ";
 
             str += type;
 
@@ -120,7 +132,7 @@ namespace CppSharp.Generators.CLI
 
         public string VisitPointerType(PointerType pointer, TypeQualifiers quals)
         {
-            var pointee = pointer.Pointee;
+            var pointee = pointer.Pointee.Desugar();
 
             if (pointee is FunctionType)
             {
@@ -128,22 +140,46 @@ namespace CppSharp.Generators.CLI
                 return string.Format("{0}^", function.Visit(this, quals));
             }
 
-            if (pointee.IsPrimitiveType(PrimitiveType.Char) && quals.IsConst)
-            {
+            if (CSharpTypePrinter.IsConstCharString(pointer))
                 return "System::String^";
-            }
 
-            PrimitiveType primitive;
-            if (pointee.Desugar().IsPrimitiveType(out primitive))
+            // From http://msdn.microsoft.com/en-us/library/y31yhkeb.aspx
+            // Any of the following types may be a pointer type:
+            // * sbyte, byte, short, ushort, int, uint, long, ulong, char, float, double, decimal, or bool.
+            // * Any enum type.
+            // * Any pointer type.
+            // * Any user-defined struct type that contains fields of unmanaged types only.
+            var finalPointee = pointer.GetFinalPointee();
+            if (finalPointee.IsPrimitiveType())
             {
+                // Skip one indirection if passed by reference
                 var param = Context.Parameter;
-                if (param != null && (param.IsOut || param.IsInOut))
-                    return VisitPrimitiveType(primitive);
+                bool isRefParam = param != null && (param.IsOut || param.IsInOut);
+                if (isRefParam)
+                    return pointee.Visit(this, quals);
 
-                return "System::IntPtr";
+                if (pointee.IsPrimitiveType(PrimitiveType.Void))
+                    return "::System::IntPtr";
+
+                var result = pointee.Visit(this, quals);
+                return !isRefParam && result == "::System::IntPtr" ? "void**" : result + "*";
             }
 
-            return pointee.Visit(this, quals);
+            Enumeration @enum;
+            if (pointee.TryGetEnum(out @enum))
+            {
+                var typeName = @enum.Visit(this);
+
+                // Skip one indirection if passed by reference
+                var param = Context.Parameter;
+                if (param != null && (param.IsOut || param.IsInOut)
+                    && pointee == finalPointee)
+                    return string.Format("{0}", typeName);
+
+                return string.Format("{0}*", typeName);
+            }
+
+            return pointer.Pointee.Visit(this, quals);
         }
 
         public string VisitMemberPointerType(MemberPointerType member,
@@ -163,18 +199,23 @@ namespace CppSharp.Generators.CLI
             {
                 case PrimitiveType.Bool: return "bool";
                 case PrimitiveType.Void: return "void";
-                case PrimitiveType.WideChar: return "char";
-                case PrimitiveType.Int8: return "char";
-                case PrimitiveType.UInt8: return "unsigned char";
-                case PrimitiveType.Int16: return "short";
-                case PrimitiveType.UInt16: return "unsigned short";
-                case PrimitiveType.Int32: return "int";
-                case PrimitiveType.UInt32: return "unsigned int";
-                case PrimitiveType.Int64: return "long long";
-                case PrimitiveType.UInt64: return "unsigned long long";
+                case PrimitiveType.Char16:
+                case PrimitiveType.WideChar: return "System::Char";
+                case PrimitiveType.Char: return Options.MarshalCharAsManagedChar ? "System::Char" : "char";
+                case PrimitiveType.UChar: return "unsigned char";
+                case PrimitiveType.Short: return "short";
+                case PrimitiveType.UShort: return "unsigned short";
+                case PrimitiveType.Int: return "int";
+                case PrimitiveType.UInt: return "unsigned int";
+                case PrimitiveType.Long: return "long";
+                case PrimitiveType.ULong: return "unsigned long";
+                case PrimitiveType.LongLong: return "long long";
+                case PrimitiveType.ULongLong: return "unsigned long long";
                 case PrimitiveType.Float: return "float";
                 case PrimitiveType.Double: return "double";
                 case PrimitiveType.IntPtr: return "IntPtr";
+                case PrimitiveType.UIntPtr: return "UIntPtr";
+                case PrimitiveType.Null: return "void*";
             }
 
             throw new NotSupportedException();
@@ -243,17 +284,25 @@ namespace CppSharp.Generators.CLI
 
         public string VisitInjectedClassNameType(InjectedClassNameType injected, TypeQualifiers quals)
         {
-            throw new NotImplementedException();
+            return string.Empty;
         }
 
         public string VisitDependentNameType(DependentNameType dependent, TypeQualifiers quals)
         {
-            throw new NotImplementedException();
+            return string.Empty;
+        }
+
+        public string VisitPackExpansionType(PackExpansionType packExpansionType, TypeQualifiers quals)
+        {
+            return string.Empty;
         }
 
         public string VisitCILType(CILType type, TypeQualifiers quals)
         {
-            return type.Type.FullName.Replace(".", "::") + "^";
+            var result = type.Type.FullName.Replace(".", "::");
+            if (!type.Type.IsValueType)
+                result += "^";
+            return result;
         }
 
         public string VisitPrimitiveType(PrimitiveType type, TypeQualifiers quals)
@@ -351,6 +400,11 @@ namespace CppSharp.Generators.CLI
         }
 
         public string VisitProperty(Property property)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string VisitFriend(Friend friend)
         {
             throw new NotImplementedException();
         }

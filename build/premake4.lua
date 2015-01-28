@@ -6,16 +6,8 @@ config = {}
 
 dofile "Helpers.lua"
 dofile "Tests.lua"
-
--- Setup the LLVM dependency
 dofile "LLVM.lua"
-
-function SetupParser()
-  local c = configuration "vs*"
-    defines { "OLD_PARSER" }
-    links { "CppSharp.Parser" }
-  configuration(c)
-end
+dofile "Parser.lua"
 
 solution "CppSharp"
 
@@ -24,9 +16,8 @@ solution "CppSharp"
   flags { common_flags }
   
   location (builddir)
-  objdir (builddir .. "/obj/")
+  objdir (path.join(builddir, "obj"))
   targetdir (libdir)
-  libdirs { libdir }
   debugdir (bindir)
 
   -- startproject "Generator"
@@ -38,15 +29,19 @@ solution "CppSharp"
 
   configuration "windows"
     defines { "WINDOWS" }
-
+	
   configuration {}
     
+  if string.starts(action, "vs") then
+
   group "Examples"
     IncludeExamples()
   
-  group "Tests"
-    IncludeTests()
+  end
   
+  group "Tests"
+      IncludeTests()
+      
   group "Libraries"
     include (srcdir .. "/Core")
     include (srcdir .. "/AST/AST.lua")
@@ -54,7 +49,3 @@ solution "CppSharp"
     include (srcdir .. "/Generator.Tests/Generator.Tests.lua")
     include (srcdir .. "/Runtime/Runtime.lua")
     include (srcdir .. "/CppParser")
-
-    if string.starts(action, "vs") then
-      include (srcdir .. "/Parser/Parser.lua")
-    end

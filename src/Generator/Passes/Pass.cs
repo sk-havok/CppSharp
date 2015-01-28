@@ -17,6 +17,8 @@ namespace CppSharp.Passes
             get { return Driver.Diagnostics; }
         }
 
+        public bool ClearVisitedDeclarations = false;
+
         public virtual bool VisitLibrary(ASTContext context)
         {
             AstContext = context;
@@ -28,11 +30,11 @@ namespace CppSharp.Passes
 
         public virtual bool VisitTranslationUnit(TranslationUnit unit)
         {
-            if (unit.Ignore)
-                return false;
-
             if (unit.IsSystemHeader)
                 return false;
+
+            if (ClearVisitedDeclarations)
+                Visited.Clear();
 
             VisitDeclarationContext(unit);
 

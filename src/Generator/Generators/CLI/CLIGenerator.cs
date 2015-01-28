@@ -17,14 +17,14 @@ namespace CppSharp.Generators.CLI
             Type.TypePrinterDelegate += type => type.Visit(typePrinter);
         }
 
-        public override List<Template> Generate(TranslationUnit unit)
+        public override List<Template> Generate(IEnumerable<TranslationUnit> units)
         {
             var outputs = new List<Template>();
 
-            var header = new CLIHeadersTemplate(Driver, unit);
+            var header = new CLIHeadersTemplate(Driver, units);
             outputs.Add(header);
 
-            var source = new CLISourcesTemplate(Driver, unit);
+            var source = new CLISourcesTemplate(Driver, units);
             outputs.Add(source);
 
             return outputs;
@@ -32,7 +32,18 @@ namespace CppSharp.Generators.CLI
 
         public override bool SetupPasses()
         {
+            // Note: The ToString override will only work if this pass runs
+            // after the MoveOperatorToCallPass.
+            if (Driver.Options.GenerateObjectOverrides)
+                Driver.TranslationUnitPasses.AddPass(new ObjectOverridesPass());
             return true;
+        }
+
+        public static bool ShouldGenerateClassNativeField(Class @class)
+        {
+            if (@class.IsStatic)
+                return false;
+            return @class.IsRefType && (!@class.HasBase || !@class.HasRefBase());
         }
     }
 }

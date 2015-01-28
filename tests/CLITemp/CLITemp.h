@@ -1,8 +1,6 @@
-#if defined(_MSC_VER)
-#define DLL_API __declspec(dllexport)
-#else
-#define DLL_API
-#endif
+#include "../Tests.h"
+
+#include <ostream>
 
 // Tests for C++ types
 struct DLL_API Types
@@ -19,3 +17,33 @@ struct DLL_API Types
     typedef int AttributedFuncType(int, int) ATTR;
     AttributedFuncType AttributedSum;
 };
+
+// Tests code generator to not generate a destructor/finalizer pair
+// if the destructor of the C++ class is not public.
+class DLL_API TestProtectedDestructors
+{
+    ~TestProtectedDestructors();
+};
+
+TestProtectedDestructors::~TestProtectedDestructors() {}
+
+// Tests the insertion operator (<<) to ToString method pass
+class DLL_API Date
+{
+public:
+    Date(int m, int d, int y)
+    {
+        mo = m; da = d; yr = y;
+    }
+    // Not picked up by parser yet
+    //friend std::ostream& operator<<(std::ostream& os, const Date& dt);
+    int mo, da, yr;
+
+    std::string testStdString(std::string s);
+};
+
+std::ostream& operator<<(std::ostream& os, const Date& dt)
+{
+    os << dt.mo << '/' << dt.da << '/' << dt.yr;
+    return os;
+}

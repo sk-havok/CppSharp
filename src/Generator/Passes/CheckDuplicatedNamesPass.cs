@@ -25,10 +25,10 @@ namespace CppSharp.Passes
             if (decl.Name != Name)
                 throw new Exception("Invalid name");
 
-            var method = decl as Method;
-            if (method != null)
+            var function = decl as Function;
+            if (function != null)
             {
-                return UpdateName(method);
+                return UpdateName(function);
             }
 
             var property = decl as Property;
@@ -46,11 +46,18 @@ namespace CppSharp.Passes
             return true;
         }
 
-        private bool UpdateName(Method method)
+        private bool UpdateName(Function function)
         {
-            var @params = method.Parameters.Where(p => p.Kind != ParameterKind.IndirectReturnType)
+            var @params = function.Parameters.Where(p => p.Kind != ParameterKind.IndirectReturnType)
                                 .Select(p => p.QualifiedType.ToString());
-            var signature = string.Format("{0}({1})", Name,string.Join( ", ", @params));
+            // Include the conversion type in case of conversion operators
+            var method = function as Method;
+            if (method != null &&
+                method.IsOperator &&
+                (method.OperatorKind == CXXOperatorKind.Conversion ||
+                 method.OperatorKind == CXXOperatorKind.ExplicitConversion))
+                @params = @params.Concat(new[] { method.ConversionType.ToString() });
+            var signature = string.Format("{0}({1})", Name, string.Join( ", ", @params));
 
             if (Count == 0)
                 Count++;
@@ -66,19 +73,19 @@ namespace CppSharp.Passes
             if (Count < methodCount+1)
                 Count = methodCount+1;
 
-            if (method.IsOperator)
+            if (function.IsOperator)
             {
                 // TODO: turn into a method; append the original type (say, "signed long") of the last parameter to the type so that the user knows which overload is called
-                Driver.Diagnostics.EmitWarning("Duplicate operator {0} ignored", method.Name);
-                method.ExplicityIgnored = true;
+                Driver.Diagnostics.EmitWarning("Duplicate operator {0} ignored", function.Name);
+                function.ExplicitlyIgnore();
             }
-            else if (method.IsConstructor)
+            else if (method != null && method.IsConstructor)
             {
-                Driver.Diagnostics.EmitWarning("Duplicate constructor {0} ignored", method.Name);
-                method.ExplicityIgnored = true;
+                Driver.Diagnostics.EmitWarning("Duplicate constructor {0} ignored", function.Name);
+                function.ExplicitlyIgnore();
             }
             else
-                method.Name += methodCount.ToString(CultureInfo.InvariantCulture);
+                function.Name += methodCount.ToString(CultureInfo.InvariantCulture);
             return true;
         }
     }
@@ -89,34 +96,54 @@ namespace CppSharp.Passes
 
         public CheckDuplicatedNamesPass()
         {
+            ClearVisitedDeclarations = false;
             names = new Dictionary<string, DeclarationName>();
         }
 
         public override bool VisitFieldDecl(Field decl)
         {
+            if (!VisitDeclaration(decl))
+                return false;
+
             if (ASTUtils.CheckIgnoreField(decl))
                 return false;
 
-            if(!AlreadyVisited(decl))
-                CheckDuplicate(decl);
-
+            CheckDuplicate(decl);
             return false;
         }
 
         public override bool VisitProperty(Property decl)
         {
-            if(!AlreadyVisited(decl) && decl.ExplicitInterfaceImpl == null)
+            if (!VisitDeclaration(decl))
+                return false;
+
+            if (decl.ExplicitInterfaceImpl == null)
                 CheckDuplicate(decl);
 
             return false;
         }
 
-        public override bool VisitMethodDecl(Method decl)
+        public override bool VisitFunctionDecl(Function decl)
         {
-            if (ASTUtils.CheckIgnoreMethod(decl))
+            if (!VisitDeclaration(decl))
                 return false;
 
-            if (!AlreadyVisited(decl) && decl.ExplicitInterfaceImpl == null)
+            if (ASTUtils.CheckIgnoreFunction(decl, Driver.Options))
+                return false;
+
+            CheckDuplicate(decl);
+            return false;
+        }
+
+        public override bool VisitMethodDecl(Method decl)
+        {
+            if (!VisitDeclaration(decl))
+                return false;
+
+            if (ASTUtils.CheckIgnoreMethod(decl, Driver.Options))
+                return false;
+
+            if (decl.ExplicitInterfaceImpl == null)
                 CheckDuplicate(decl);
 
             return false;
@@ -124,7 +151,10 @@ namespace CppSharp.Passes
 
         public override bool VisitClassDecl(Class @class)
         {
-            if (AlreadyVisited(@class) || @class.IsIncomplete)
+            if (!VisitDeclaration(@class))
+                return false;
+
+            if (@class.IsIncomplete)
                 return false;
 
             // DeclarationName should always process methods first, 
@@ -132,18 +162,30 @@ namespace CppSharp.Passes
             foreach (var method in @class.Methods)
                 VisitMethodDecl(method);
 
+            foreach (var function in @class.Functions)
+                VisitFunctionDecl(function);
+
             foreach (var field in @class.Fields)
                 VisitFieldDecl(field);
 
             foreach (var property in @class.Properties)
                 VisitProperty(property);
 
+            var total = (uint)0;
+            foreach (var method in @class.Methods.Where(m => m.IsConstructor &&
+                !m.IsCopyConstructor && !m.IsMoveConstructor))
+                method.Index =  total++;
+
+            total = 0;
+            foreach (var method in @class.Methods.Where(m => m.IsCopyConstructor))
+                method.Index = total++;
+
             return false;
         }
 
         void CheckDuplicate(Declaration decl)
         {
-            if (decl.IsDependent || decl.Ignore)
+            if (decl.IsDependent || !decl.IsGenerated)
                 return;
 
             if (string.IsNullOrWhiteSpace(decl.Name))
@@ -156,7 +198,10 @@ namespace CppSharp.Passes
                 names.Add(fullName, new DeclarationName(decl.Name, Driver));
 
             if (names[fullName].UpdateName(decl))
-                Driver.Diagnostics.EmitWarning("Duplicate name {0}, renamed to {1}", fullName, decl.Name);
+            {
+                Driver.Diagnostics.Debug("Duplicate name {0}, renamed to {1}",
+                    fullName, decl.Name);
+            }
         }
     }
 }

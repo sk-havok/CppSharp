@@ -13,11 +13,17 @@ namespace CppSharp.Passes
 
         public override bool VisitTranslationUnit(TranslationUnit unit)
         {
+            if (IsExternalDeclaration(unit) && unit.IsGenerated)
+                unit.GenerationKind = GenerationKind.Link;
+                
             // Try to get an include path that works from the original include
             // directories paths.
-
-            unit.IncludePath = GetIncludePath(unit.FilePath);
-            return true;
+            if (unit.IsValid)
+            {
+                unit.IncludePath = GetIncludePath(unit.FilePath);
+                return true;
+            }
+            return false;
         }
 
         string GetIncludePath(string filePath)
@@ -25,9 +31,17 @@ namespace CppSharp.Passes
             var includePath = filePath;
             var shortestIncludePath = filePath;
 
-            foreach (var path in DriverOptions.IncludeDirs)
+            for (uint i = 0; i < DriverOptions.IncludeDirsCount; ++i)
             {
+                var path = DriverOptions.getIncludeDirs(i);
+
                 int idx = filePath.IndexOf(path, System.StringComparison.Ordinal);
+                if (idx == -1)
+                {
+                    path = path.Replace('/', '\\');
+                    idx = filePath.IndexOf(path, System.StringComparison.Ordinal);
+                }
+
                 if (idx == -1) continue;
 
                 string inc = filePath.Substring(path.Length);
@@ -40,6 +54,21 @@ namespace CppSharp.Passes
                 + shortestIncludePath.TrimStart(new char[] { '\\', '/' });
 
             return includePath.Replace('\\', '/');
+        }
+
+
+        bool IsExternalDeclaration(TranslationUnit translationUnit)
+        {
+            if (DriverOptions.NoGenIncludeDirs == null)
+                return false;
+
+            foreach (var path in DriverOptions.NoGenIncludeDirs)
+            {
+                if (translationUnit.FilePath.StartsWith(path))
+                    return true;
+            }
+
+            return false;
         }
     }
 }

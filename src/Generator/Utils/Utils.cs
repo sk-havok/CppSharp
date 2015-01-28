@@ -15,31 +15,6 @@ namespace CppSharp
         }
     }
 
-    public static class PrimitiveTypeExtensions
-    {
-        public static System.Type ConvertToType(this PrimitiveType primitive)
-        {
-            switch (primitive)
-            {
-                case PrimitiveType.Bool: return typeof(bool);
-                case PrimitiveType.Void: return typeof(void);
-                case PrimitiveType.WideChar: return typeof(char);
-                case PrimitiveType.Int8: return typeof(sbyte);
-                case PrimitiveType.UInt8: return typeof(byte);
-                case PrimitiveType.Int16: return typeof(short);
-                case PrimitiveType.UInt16: return typeof(ushort);
-                case PrimitiveType.Int32: return typeof(int);
-                case PrimitiveType.UInt32: return typeof(uint);
-                case PrimitiveType.Int64: return typeof(long);
-                case PrimitiveType.UInt64: return typeof(ulong);
-                case PrimitiveType.Float: return typeof(float);
-                case PrimitiveType.Double: return typeof(double);
-            }
-
-            return typeof(int);
-        }
-    }
-
     public static class StringHelpers
     {
         public static string CommonPrefix(this string[] ss)
@@ -235,11 +210,18 @@ namespace CppSharp
         }
     }
 
-    public static class ASTHelpers
+    public static class PathHelpers
     {
-        public static string GetDelegateName(Function method)
+        public static string GetRelativePath(string fromPath, string toPath)
         {
-            return "_" + char.ToLowerInvariant(method.Name[0]) + method.Name.Substring(1) + "Delegate";
+            var path1 = fromPath.Trim('\\', '/');
+            var path2 = toPath.Trim('\\', '/');
+
+            var uri1 = new System.Uri("c:\\" + path1 + "\\");
+            var uri2 = new System.Uri("c:\\" + path2 + "\\");
+
+            return uri1.MakeRelativeUri(uri2).ToString();
         }
+        
     }
 }

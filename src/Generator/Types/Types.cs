@@ -1,4 +1,5 @@
 ﻿using CppSharp.AST;
+using CppSharp.AST.Extensions;
 using CppSharp.Types;
 
 namespace CppSharp
@@ -16,6 +17,9 @@ namespace CppSharp
 
         public override bool VisitDeclaration(Declaration decl)
         {
+            if (AlreadyVisited(decl))
+                return false;
+
             if (decl.CompleteDeclaration != null)
                 return true;
 
@@ -45,10 +49,13 @@ namespace CppSharp
 
         public override bool VisitDeclaration(Declaration decl)
         {
+            if (AlreadyVisited(decl))
+                return false;
+
             if (decl.CompleteDeclaration != null)
                 return VisitDeclaration(decl.CompleteDeclaration);
 
-            if (decl.Ignore)
+            if (decl.GenerationKind == GenerationKind.None)
             {
                 Ignore();
                 return false;
@@ -94,16 +101,21 @@ namespace CppSharp
             return base.VisitTypedefDecl(typedef);
         }
 
-        public override bool VisitMemberPointerType(MemberPointerType member,
-            TypeQualifiers quals)
+        public override bool VisitMemberPointerType(MemberPointerType member, TypeQualifiers quals)
         {
-            FunctionType functionType;
-            if (!member.IsPointerTo(out functionType))
+            Ignore();
+            return false;
+        }
+
+        public override bool VisitParameterDecl(Parameter parameter)
+        {
+            if (parameter.Type.IsPrimitiveType(PrimitiveType.Null))
             {
                 Ignore();
                 return false;
             }
-            return base.VisitMemberPointerType(member, quals);
+
+            return base.VisitParameterDecl(parameter);
         }
 
         public override bool VisitTemplateSpecializationType(

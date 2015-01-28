@@ -1,12 +1,11 @@
 ﻿using System;
-using System.Linq;
 using System.Reflection;
 using CSharpTemp;
+using CppSharp.Utils;
 using NUnit.Framework;
 using Foo = CSharpTemp.Foo;
 
-[TestFixture]
-public class CSharpTempTests
+public class CSharpTempTests : GeneratorTestFixture
 {
     [Test]
     public void TestIndexer()
@@ -33,16 +32,6 @@ public class CSharpTempTests
     }
 
     [Test]
-    public void TestFixedArrays()
-    {
-        Qux qux = new Qux(null);
-        var array = new[] { 1, 2, 3 };
-        qux.Array = array;
-        for (int i = 0; i < qux.Array.Length; i++)
-            Assert.That(array[i], Is.EqualTo(qux.Array[i]));
-    }
-
-    [Test]
     public void TestMultipleInheritance()
     {
         var baz = new Baz();
@@ -65,7 +54,7 @@ public class CSharpTempTests
         Assert.That(proprietor.Value, Is.EqualTo(20));
         proprietor.Prop = 50;
         Assert.That(proprietor.Prop, Is.EqualTo(50));
-        var p = new P(null);
+        var p = new P((IQux) null);
         p.Value = 20;
         Assert.That(p.Value, Is.EqualTo(30));
         p.Prop = 50;
@@ -85,5 +74,118 @@ public class CSharpTempTests
         Assert.That(typeof(Qux).GetMethod("Obsolete")
             .GetCustomAttributes(typeof(ObsoleteAttribute), false).Length,
             Is.GreaterThan(0));
+    }
+
+    [Test]
+    public void TestDestructors()
+    {
+        CSharpTemp.TestDestructors.InitMarker();
+        Assert.AreEqual(0, CSharpTemp.TestDestructors.Marker);
+
+        var dtors = new TestDestructors();
+        Assert.AreEqual(0xf00d, CSharpTemp.TestDestructors.Marker);
+        dtors.Dispose();
+        Assert.AreEqual(0xcafe, CSharpTemp.TestDestructors.Marker);
+    }
+
+    [Test]
+    public unsafe void TestArrayOfPointersToPrimitives()
+    {
+        var bar = new Bar();
+        var array = new IntPtr[1];
+        int i = 5;
+        array[0] = new IntPtr(&i);
+        bar.ArrayOfPrimitivePointers = array;
+        Assert.That(i, Is.EqualTo(*(int*) bar.ArrayOfPrimitivePointers[0]));
+    }
+
+    [Test]
+    public void TestCopyConstructorValue()
+    {
+        var testCopyConstructorVal = new TestCopyConstructorVal { A = 10, B = 5 };
+        var copyBar = new TestCopyConstructorVal(testCopyConstructorVal);
+        Assert.That(testCopyConstructorVal.A, Is.EqualTo(copyBar.A));
+        Assert.That(testCopyConstructorVal.B, Is.EqualTo(copyBar.B));
+    }
+
+    [Test]
+    public void TestPropertiesConflictingWithMethod()
+    {
+        var p = new P((IQux) new Qux()) { Test = true };
+        Assert.That(p.Test, Is.True);
+        p.GetTest();
+    }
+
+    [Test]
+    public void TestDefaultArguments()
+    {
+        var methodsWithDefaultValues = new MethodsWithDefaultValues();
+        methodsWithDefaultValues.DefaultChar();
+        methodsWithDefaultValues.DefaultEmptyChar();
+        methodsWithDefaultValues.DefaultPointer();
+        methodsWithDefaultValues.DefaultVoidStar();
+        methodsWithDefaultValues.DefaultValueType();
+        methodsWithDefaultValues.DefaultRefTypeAfterOthers();
+        methodsWithDefaultValues.DefaultRefTypeBeforeAndAfterOthers(5, new Foo());
+        methodsWithDefaultValues.DefaultRefTypeBeforeOthers();
+        methodsWithDefaultValues.DefaultValueType();
+        methodsWithDefaultValues.DefaultIntAssignedAnEnum();
+    }
+
+    [Test]
+    public void TestGenerationOfAnotherUnitInSameFile()
+    {
+        AnotherUnit.FunctionInAnotherUnit();
+    }
+
+    [Test]
+    public void TestPrivateOverride()
+    {
+        new HasPrivateOverride().PrivateOverride();
+    }
+
+    [Test]
+    public void TestQFlags()
+    {
+        Assert.AreEqual(TestFlag.Flag2, new ComplexType().ReturnsQFlags);
+    }
+
+    [Test]
+    public void TestCopyCtor()
+    {
+        Qux q1 = new Qux();
+        for (int i = 0; i < q1.Array.Length; i++)
+        {
+            q1.Array[i] = i;
+        }
+        Qux q2 = new Qux(q1);
+        for (int i = 0; i < q2.Array.Length; i++)
+        {
+            Assert.AreEqual(q1.Array[i], q2.Array[i]);
+        }
+    }
+
+    [Test]
+    public void TestImplicitCtor()
+    {
+        Foo foo = new Foo { A = 10 };
+        MethodsWithDefaultValues m = foo;
+        Assert.AreEqual(foo.A, m.A);
+        MethodsWithDefaultValues m1 = 5;
+        Assert.AreEqual(5, m1.A);
+    }
+
+    [Test]
+    public void TestStructWithPrivateFields()
+    {
+        var structWithPrivateFields = new StructWithPrivateFields(10, new Foo { A = 5 });
+        Assert.AreEqual(10, structWithPrivateFields.SimplePrivateField);
+        Assert.AreEqual(5, structWithPrivateFields.ComplexPrivateField.A);
+    }
+
+    [Test]
+    public void TestRenamingVariable()
+    {
+        Assert.AreEqual(5, Foo.Rename);
     }
 }

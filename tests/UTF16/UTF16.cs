@@ -5,7 +5,7 @@ using CppSharp.Utils;
 
 namespace CppSharp.Tests
 {
-    public class UTF16Tests : LibraryTest
+    public class UTF16Tests : GeneratorTest
     {
         public UTF16Tests(GeneratorKind kind)
             : base("UTF16", kind)
@@ -17,7 +17,7 @@ namespace CppSharp.Tests
             driver.Options.Encoding = Encoding.Unicode;
         }
 
-        public override void Preprocess(Driver driver, ASTContext lib)
+        public override void Preprocess(Driver driver, ASTContext ctx)
         {
 
         }

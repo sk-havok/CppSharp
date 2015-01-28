@@ -1,5 +1,6 @@
 ﻿using System.Linq;
 using CppSharp.AST;
+using CppSharp.AST.Extensions;
 using CppSharp.Generators;
 
 namespace CppSharp.Passes
@@ -9,16 +10,15 @@ namespace CppSharp.Passes
     /// </summary>
     class CheckOperatorsOverloadsPass : TranslationUnitPass
     {
+        public CheckOperatorsOverloadsPass()
+        {
+            ClearVisitedDeclarations = false;
+        }
+
         public override bool VisitClassDecl(Class @class)
         {
             if (@class.CompleteDeclaration != null)
                 return VisitClassDecl(@class.CompleteDeclaration as Class);
-
-            if (!VisitDeclaration(@class))
-                return false;
-
-            if (AlreadyVisited(@class))
-                return false;
 
             if (!VisitDeclarationContext(@class))
                 return false;
@@ -47,17 +47,18 @@ namespace CppSharp.Passes
 
         private void CheckInvalidOperators(Class @class)
         {
-            foreach (var @operator in @class.Operators.Where(o => !o.Ignore))
+            foreach (var @operator in @class.Operators.Where(o => o.IsGenerated))
             {
                 if (!IsValidOperatorOverload(@operator))
                 {
                     Driver.Diagnostics.Debug(DiagnosticId.InvalidOperatorOverload,
                         "Invalid operator overload {0}::{1}",
                         @class.OriginalName, @operator.OperatorKind);
-                    @operator.ExplicityIgnored = true;
+                    @operator.ExplicitlyIgnore();
                     continue;
                 }
-                if (@operator.SynthKind == FunctionSynthKind.NonMemberOperator)
+
+                if (@operator.IsNonMemberOperator)
                     continue;
 
                 if (@operator.OperatorKind == CXXOperatorKind.Subscript)
@@ -70,25 +71,28 @@ namespace CppSharp.Passes
                     if (@operator.IsStatic)
                         @operator.Parameters = @operator.Parameters.Skip(1).ToList();
 
-                    var type = new PointerType()
+                    if (@operator.ConversionType.Type == null || @operator.Parameters.Count == 0)
                     {
-                        QualifiedPointee = new QualifiedType(new TagType(@class)),
-                        Modifier = PointerType.TypeModifier.LVReference
-                    };
+                        var type = new PointerType
+                        {
+                            QualifiedPointee = new QualifiedType(new TagType(@class)),
+                            Modifier = PointerType.TypeModifier.LVReference
+                        };
 
-                    @operator.Parameters.Insert(0, new Parameter
-                    {
-                        Name = Generator.GeneratedIdentifier("op"),
-                        QualifiedType = new QualifiedType(type),
-                        Kind = ParameterKind.OperatorParameter
-                    });
+                        @operator.Parameters.Insert(0, new Parameter
+                        {
+                            Name = Generator.GeneratedIdentifier("op"),
+                            QualifiedType = new QualifiedType(type),
+                            Kind = ParameterKind.OperatorParameter
+                        });
+                    }
                 }
             }
         }
 
-        private static void CreateIndexer(Class @class, Method @operator)
+        void CreateIndexer(Class @class, Method @operator)
         {
-            Property property = new Property
+            var property = new Property
                 {
                     Name = "Item",
                     QualifiedType = @operator.ReturnType,
@@ -96,11 +100,31 @@ namespace CppSharp.Passes
                     Namespace = @class,
                     GetMethod = @operator
                 };
+
+            var returnType = @operator.Type;
+            if (returnType.IsAddress())
+            {
+                var pointer = returnType as PointerType;
+                var qualifiedPointee = pointer.QualifiedPointee;
+                if (!qualifiedPointee.Qualifiers.IsConst)
+                    property.SetMethod = @operator;
+            }
+            
+            // If we've a setter use the pointee as the type of the property.
+            var pointerType = property.Type as PointerType;
+            if (pointerType != null && property.HasSetter)
+                property.QualifiedType = new QualifiedType(
+                    pointerType.Pointee, property.QualifiedType.Qualifiers);
+
+            if (Driver.Options.IsCLIGenerator)
+                // C++/CLI uses "default" as the indexer property name.
+                property.Name = "default";
+
             property.Parameters.AddRange(@operator.Parameters);
-            if (!@operator.ReturnType.Qualifiers.IsConst && @operator.ReturnType.Type.IsAddress())
-                property.SetMethod = @operator;
+
             @class.Properties.Add(property);
-            @operator.IsGenerated = false;
+
+            @operator.GenerationKind = GenerationKind.Internal;
         }
 
         static void HandleMissingOperatorOverloadPair(Class @class, CXXOperatorKind op1,
@@ -113,14 +137,14 @@ namespace CppSharp.Passes
                 var missingKind = CheckMissingOperatorOverloadPair(@class, out index, op1, op2,
                                                                    op.Parameters.Last().Type);
 
-                if (missingKind == CXXOperatorKind.None || op.Ignore)
+                if (missingKind == CXXOperatorKind.None || !op.IsGenerated)
                     continue;
 
                 var method = new Method()
                     {
                         Name = Operators.GetOperatorIdentifier(missingKind),
                         Namespace = @class,
-                        IsSynthetized = true,
+                        SynthKind = FunctionSynthKind.ComplementOperator,
                         Kind = CXXMethodKind.Operator,
                         OperatorKind = missingKind,
                         ReturnType = op.ReturnType,
@@ -142,13 +166,13 @@ namespace CppSharp.Passes
             var hasFirst = first != null;
             var hasSecond = second != null;
 
-            if (hasFirst && (!hasSecond || second.Ignore))
+            if (hasFirst && (!hasSecond || !second.IsGenerated))
             {
                 index = @class.Methods.IndexOf(first);
                 return op2;
             }
 
-            if (hasSecond && (!hasFirst || first.Ignore))
+            if (hasSecond && (!hasFirst || !first.IsGenerated))
             {
                 index = @class.Methods.IndexOf(second);
                 return op1;
@@ -180,15 +204,19 @@ namespace CppSharp.Passes
                 // The array indexing operator can be overloaded
                 case CXXOperatorKind.Subscript:
 
-                // The comparison operators can be overloaded
+                // The conversion operators can be overloaded
+                case CXXOperatorKind.Conversion:
+                case CXXOperatorKind.ExplicitConversion:
+                    return true;
+
+                // The comparison operators can be overloaded if their return type is bool
                 case CXXOperatorKind.EqualEqual:
                 case CXXOperatorKind.ExclaimEqual:
                 case CXXOperatorKind.Less:
                 case CXXOperatorKind.Greater:
                 case CXXOperatorKind.LessEqual:
                 case CXXOperatorKind.GreaterEqual:
-                case CXXOperatorKind.Conversion:
-                    return true;
+                    return @operator.ReturnType.Type.IsPrimitiveType(PrimitiveType.Bool);
 
                 // Only prefix operators can be overloaded
                 case CXXOperatorKind.PlusPlus:
@@ -200,7 +228,7 @@ namespace CppSharp.Passes
                 case CXXOperatorKind.GreaterGreater:
                     PrimitiveType primitiveType;
                     return @operator.Parameters.Last().Type.IsPrimitiveType(out primitiveType) &&
-                           primitiveType == PrimitiveType.Int32;
+                           primitiveType == PrimitiveType.Int;
 
                 // No parameters means the dereference operator - cannot be overloaded
                 case CXXOperatorKind.Star:

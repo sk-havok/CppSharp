@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using CppSharp.AST;
 
 namespace CppSharp.Passes
@@ -25,27 +26,29 @@ namespace CppSharp.Passes
     {
         public override bool VisitFunctionDecl(AST.Function function)
         {
-            if (AlreadyVisited(function))
+            if (!VisitDeclaration(function))
                 return false;
 
             if (function.IsAmbiguous)
                 return false;
 
-            var overloads = function.Namespace.GetFunctionOverloads(function);
+            var overloads = function.Namespace.GetOverloads(function);
 
             foreach (var overload in overloads)
             {
                 if (function.OperatorKind == CXXOperatorKind.Conversion)
                     continue;
+                if (function.OperatorKind == CXXOperatorKind.ExplicitConversion)
+                    continue;
 
                 if (overload == function) continue;
 
-                if (overload.Ignore) continue;
-
-                if (!CheckDefaultParameters(function, overload))
-                    continue;
+                if (!overload.IsGenerated) continue;
 
                 if (!CheckConstness(function, overload))
+                    continue;
+
+                if (!CheckDefaultParameters(function, overload))
                     continue;
 
                 function.IsAmbiguous = true;
@@ -88,9 +91,9 @@ namespace CppSharp.Passes
             }
 
             if (function.Parameters.Count > overload.Parameters.Count)
-                overload.ExplicityIgnored = true;
+                overload.ExplicitlyIgnore();
             else
-                function.ExplicityIgnored = true;
+                function.ExplicitlyIgnore();
 
             return true;
         }
@@ -102,15 +105,17 @@ namespace CppSharp.Passes
                 var method1 = function as Method;
                 var method2 = overload as Method;
 
-                if (method1.IsConst && !method2.IsConst)
+                var sameParams = method1.Parameters.SequenceEqual(method2.Parameters, new ParameterTypeComparer());
+
+                if (method1.IsConst && !method2.IsConst && sameParams)
                 {
-                    method1.ExplicityIgnored = true;
+                    method1.ExplicitlyIgnore();
                     return false;
                 }
 
-                if (method2.IsConst && !method1.IsConst)
+                if (method2.IsConst && !method1.IsConst && sameParams)
                 {
-                    method2.ExplicityIgnored = true;
+                    method2.ExplicitlyIgnore();
                     return false;
                 }
             }

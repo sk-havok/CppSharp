@@ -1,5 +1,4 @@
-﻿using System;
-using CppSharp.AST;
+﻿using CppSharp.AST;
 
 namespace CppSharp.Passes
 {
@@ -10,17 +9,11 @@ namespace CppSharp.Passes
             if (AlreadyVisited(decl))
                 return false;
 
-            if (decl.Ignore)
-                return false;
-
-            return true;
+            return decl.IsGenerated;
         }
 
         public override bool VisitClassDecl(Class @class)
         {
-            if (!VisitDeclaration(@class))
-                return false;
-
             if (!@class.IsIncomplete)
                 goto Out;
 
@@ -32,9 +25,9 @@ namespace CppSharp.Passes
 
             if (@class.CompleteDeclaration == null)
             {
-                @class.IsGenerated = false;
-                Driver.Diagnostics.EmitWarning(DiagnosticId.UnresolvedDeclaration,
-                    "Unresolved declaration: {0}", @class.Name);
+                @class.GenerationKind = GenerationKind.Internal;
+                Driver.Diagnostics.Debug("Unresolved declaration: {0}",
+                    @class.Name);
             }
 
         Out:
@@ -58,7 +51,7 @@ namespace CppSharp.Passes
 
             if (@enum.CompleteDeclaration == null)
             {
-                @enum.IsGenerated = false;
+                @enum.GenerationKind = GenerationKind.Internal;
                 Driver.Diagnostics.EmitWarning(DiagnosticId.UnresolvedDeclaration,
                     "Unresolved declaration: {0}", @enum.Name);
             }

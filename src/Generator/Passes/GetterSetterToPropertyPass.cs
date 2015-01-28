@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using CppSharp.AST;
+using CppSharp.AST.Extensions;
 
 namespace CppSharp.Passes
 {
@@ -53,8 +54,7 @@ namespace CppSharp.Passes
             var prop2 = @class.Properties.FirstOrDefault(property => property.Name == name);
 
             if (prop == null && prop2 != null)
-                Driver.Diagnostics.EmitWarning(DiagnosticId.PropertySynthetized,
-                    "Property {0}::{1} already exist with type {2}",
+                Driver.Diagnostics.Debug("Property {0}::{1} already exists (type: {2})",
                     @class.Name, name, type.Type.ToString());
 
             if (prop != null)
@@ -73,15 +73,21 @@ namespace CppSharp.Passes
 
         public override bool VisitMethodDecl(Method method)
         {
-            if (AlreadyVisited(method))
+            if (!VisitDeclaration(method))
                 return false;
 
-            if (ASTUtils.CheckIgnoreMethod(method))
+            if (ASTUtils.CheckIgnoreMethod(method, Driver.Options))
                 return false;
 
             var @class = method.Namespace as Class;
 
             if (@class == null || @class.IsIncomplete)
+                return false;
+
+            if (method.IsConstructor)
+                return false;
+
+            if (method.IsSynthetized)
                 return false;
 
             if (IsGetter(method))
@@ -92,10 +98,9 @@ namespace CppSharp.Passes
                 prop.Access = method.Access;
 
                 // Do not generate the original method now that we know it is a getter.
-                method.IsGenerated = false;
+                method.GenerationKind = GenerationKind.Internal;
 
-                Driver.Diagnostics.EmitMessage(DiagnosticId.PropertySynthetized,
-                    "Getter created: {0}::{1}", @class.Name, name);
+                Driver.Diagnostics.Debug("Getter created: {0}::{1}", @class.Name, name);
 
                 return false;
             }
@@ -110,10 +115,9 @@ namespace CppSharp.Passes
                 prop.Access = method.Access;
 
                 // Ignore the original method now that we know it is a setter.
-                method.IsGenerated = false;
+                method.GenerationKind = GenerationKind.Internal;
 
-                Driver.Diagnostics.EmitMessage(DiagnosticId.PropertySynthetized,
-                    "Setter created: {0}::{1}", @class.Name, name);
+                Driver.Diagnostics.Debug("Setter created: {0}::{1}", @class.Name, name);
 
                 return false;
             }

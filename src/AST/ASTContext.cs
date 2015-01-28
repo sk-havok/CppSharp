@@ -9,7 +9,9 @@ namespace CppSharp.AST
     {
         Itanium,
         Microsoft,
-        ARM
+        ARM,
+        iOS,
+        iOS64
     }
 
     /// <summary>
@@ -27,14 +29,17 @@ namespace CppSharp.AST
         /// Finds an existing module or creates a new one given a file path.
         public TranslationUnit FindOrCreateModule(string file)
         {
-            try
+            if (!file.StartsWith("<"))
             {
-                file = Path.GetFullPath(file);
-            }
-            catch (ArgumentException)
-            {
-                // Normalization errors are expected when dealing with virtual
-                // compiler files like <built-in>.
+                try
+                {
+                    file = Path.GetFullPath(file);
+                }
+                catch (ArgumentException)
+                {
+                    // Normalization errors are expected when dealing with virtual
+                    // compiler files like <built-in>.
+                }
             }
             
             var module = TranslationUnits.Find(m => m.FilePath.Equals(file));

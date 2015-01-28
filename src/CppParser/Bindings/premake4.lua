@@ -2,42 +2,50 @@ project "CppSharp.Parser.Gen"
 
   kind "ConsoleApp"
   language "C#"
-  location "."
+  SetupManagedProject()
   debugdir "."
   
   files { "ParserGen.cs", "*.lua" }
-  links { "CppSharp.AST", "CppSharp.Generator" }
+  links { "CppSharp.AST", "CppSharp.Generator", "System.Core" }
 
-  configuration { "vs*" }
-    links { "CppSharp.Parser" }
-
-  configuration { "not vs*" }
-    links { "CppSharp.Parser.CSharp" }
+  SetupParser()
   
 project "CppSharp.Parser.CSharp"
   
   kind "SharedLib"
   language "C#"
-  location "."
+  SetupManagedProject()
   
   dependson { "CppSharp.CppParser" }
   flags { common_flags, "Unsafe" }
 
   files
   {
-    "CSharp/**.cs",
     "**.lua"
   }
 
   links { "CppSharp.Runtime" }
 
-configuration "vs*"
+  if os.is_windows() then
+      files { "CSharp/i686-pc-win32-msvc/**.cs" }
+  elseif os.is_osx() then
+      files { "CSharp/i686-apple-darwin12.4.0/**.cs" }
+  elseif os.is_linux() then
+      files { "CSharp/x86_64-linux-gnu/**.cs" }
+  else
+      print "Unknown architecture"
+  end
+
+  configuration ""
+
+if string.starts(action, "vs") and os.is_windows() then
 
   project "CppSharp.Parser.CLI"
     
     kind "SharedLib"
     language "C++"
     SetupNativeProject()
+    SetupLLVMIncludes()
     
     dependson { "CppSharp.CppParser" }
     flags { common_flags, "Managed" }
@@ -60,3 +68,5 @@ configuration "vs*"
     
     configuration "*"
     links { "CppSharp.CppParser" }
+
+end

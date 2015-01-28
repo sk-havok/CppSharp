@@ -20,16 +20,9 @@ namespace CppSharp.Passes
     /// </summary>
     public class CheckAbiParameters : TranslationUnitPass
     {
-        private readonly DriverOptions options;
-
-        public CheckAbiParameters(DriverOptions options)
-        {
-            this.options = options;
-        }
-
         public override bool VisitFunctionDecl(Function function)
         {
-            if (AlreadyVisited(function))
+            if (!VisitDeclaration(function))
                 return false;
 
             if (function.IsReturnIndirect)
@@ -44,6 +37,15 @@ namespace CppSharp.Passes
                 function.Parameters.Insert(0, indirectParam);
                 function.ReturnType = new QualifiedType(new BuiltinType(
                     PrimitiveType.Void));
+            }
+
+            if (function.HasThisReturn)
+            {
+                // This flag should only be true on methods.
+                var method = (Method) function;
+                var classType = new QualifiedType(new TagType(method.Namespace),
+                    new TypeQualifiers {IsConst = true});
+                function.ReturnType = new QualifiedType(new PointerType(classType));
             }
 
             // TODO: Handle indirect parameters

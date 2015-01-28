@@ -13,145 +13,6 @@ namespace CppSharp.AST
 
         public bool IsDependent { get; set; }
 
-        public bool IsPrimitiveType()
-        {
-            PrimitiveType type;
-            return IsPrimitiveType(out type);
-        }
-
-        public bool IsPrimitiveType(out PrimitiveType primitive)
-        {
-            var builtin = this as BuiltinType;
-            if (builtin != null)
-            {
-                primitive = builtin.Type;
-                return true;
-            }
-
-            primitive = PrimitiveType.Null;
-            return false;
-        }
-
-        public bool IsPrimitiveType(PrimitiveType primitive)
-        {
-            PrimitiveType type;
-            if (!IsPrimitiveType(out type))
-                return false;
-
-            return primitive == type;
-        }
-
-        public bool IsEnumType()
-        {
-            var tag = this as TagType;
-            
-            if (tag == null)
-                return false;
-
-            return tag.Declaration is Enumeration;
-        }
-
-        public bool IsAddress()
-        {
-            return IsPointer() || IsReference();
-        }
-
-        public bool IsPointer()
-        {
-            var functionPointer = this as MemberPointerType;
-            if (functionPointer != null)
-                return true;
-            var pointer = this as PointerType;
-            if (pointer == null)
-                return false;
-            return pointer.Modifier == PointerType.TypeModifier.Pointer;
-        }
-
-        public bool IsReference()
-        {
-            var pointer = this as PointerType;
-            if (pointer == null)
-                return false;
-            return pointer.IsReference;
-        }
-
-        public bool IsPointerToPrimitiveType()
-        {
-            var ptr = this as PointerType;
-            if (ptr == null)
-                return false;
-            PrimitiveType primitiveType;
-            return ptr.Pointee.IsPrimitiveType(out primitiveType);
-        }
-
-        public bool IsPointerToPrimitiveType(out PrimitiveType primitive)
-        {
-            var ptr = this as PointerType;
-            if (ptr == null)
-            {
-                primitive = PrimitiveType.Null;
-                return false;
-            }
-            return ptr.Pointee.IsPrimitiveType(out primitive);
-        }
-
-        public bool IsPointerToPrimitiveType(PrimitiveType primitive)
-        {
-            var ptr = this as PointerType;
-            if (ptr == null)
-                return false;
-            return ptr.Pointee.IsPrimitiveType(primitive);
-        }
-
-        public bool IsPointerTo<T>(out T type) where T : Type
-        {
-            var ptr = this as PointerType;
-            
-            if (ptr == null)
-            {
-                var functionPointer = this as MemberPointerType;
-                if (functionPointer != null)
-                {
-                    type = functionPointer.Pointee as T;
-                    return type != null;
-                }
-                type = null;
-                return false;
-            }
-            
-            type = ptr.Pointee as T;
-            return type != null;
-        }
-
-        public bool IsTagDecl<T>(out T decl) where T : Declaration
-        {
-            var tag = this as TagType;
-            
-            if (tag == null)
-            {
-                decl = null;
-                return false;
-            }
-
-            decl = tag.Declaration as T;
-            return decl != null;
-        }
-
-        public Type Desugar()
-        {
-            var type = this as TypedefType;
-
-            if (type != null)
-            {
-                var decl = type.Declaration.Type;
-
-                if (decl != null)
-                    return decl.Desugar();
-            }
-
-            return this;
-        }
-
         public abstract T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals
             = new TypeQualifiers());
 
@@ -274,18 +135,19 @@ namespace CppSharp.AST
             Incomplete
         }
 
-        public ArrayType()
-        {
-        }
-
         // Type of the array elements.
-        public Type Type;
+        public QualifiedType QualifiedType;
 
         // Size type of array.
         public ArraySize SizeType;
 
         // In case of a constant size array.
         public long Size;
+
+        public Type Type
+        {
+            get { return QualifiedType.Type; }
+        }
 
         public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
         {
@@ -296,7 +158,7 @@ namespace CppSharp.AST
         {
             var type = obj as ArrayType;
             if (type == null) return false;
-            var equals = Type.Equals(type.Type) && SizeType.Equals(type.SizeType);
+            var equals = QualifiedType.Equals(type.QualifiedType) && SizeType.Equals(type.SizeType);
 
             if (SizeType == ArraySize.Constant)
                 equals &= Size.Equals(type.Size);
@@ -352,9 +214,10 @@ namespace CppSharp.AST
     /// </summary>
     public class PointerType : Type
     {
-        public PointerType()
+        public PointerType(QualifiedType pointee = new QualifiedType())
         {
             Modifier = TypeModifier.Pointer;
+            QualifiedPointee = pointee;
         }
 
         /// <summary>
@@ -370,7 +233,7 @@ namespace CppSharp.AST
             RVReference
         }
 
-        public new bool IsReference
+        public bool IsReference
         {
             get
             {
@@ -409,12 +272,12 @@ namespace CppSharp.AST
     /// </summary>
     public class MemberPointerType : Type
     {
-        public MemberPointerType()
+        public QualifiedType QualifiedPointee;
+
+        public Type Pointee
         {
-
+            get { return QualifiedPointee.Type; }
         }
-
-        public Type Pointee;
 
         public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
         {
@@ -426,7 +289,7 @@ namespace CppSharp.AST
             var pointer = obj as MemberPointerType;
             if (pointer == null) return false;
 
-            return Pointee.Equals(pointer.Pointee);
+            return QualifiedPointee.Equals(pointer.QualifiedPointee);
         }
 
         public override int GetHashCode()
@@ -440,11 +303,6 @@ namespace CppSharp.AST
     /// </summary>
     public class TypedefType : Type
     {
-        public TypedefType()
-        {
-
-        }
-
         public TypedefDecl Declaration;
 
         public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
@@ -508,11 +366,6 @@ namespace CppSharp.AST
     /// </summary>
     public class DecayedType : Type
     {
-        public DecayedType()
-        {
-
-        }
-
         public QualifiedType Decayed;
         public QualifiedType Original;
         public QualifiedType Pointee;
@@ -636,7 +489,7 @@ namespace CppSharp.AST
             if (type == null) return false;
 
             return Arguments.SequenceEqual(type.Arguments)
-                && Template.Equals(type.Template);
+                && Template.Name == type.Template.Name;
         }
 
         public override int GetHashCode()
@@ -651,6 +504,9 @@ namespace CppSharp.AST
     public class TemplateParameterType : Type
     {
         public TemplateParameter Parameter;
+        public uint Depth;
+        public uint Index;
+        public bool IsParameterPack;
 
         public override T Visit<T>(ITypeVisitor<T> visitor,
                                    TypeQualifiers quals = new TypeQualifiers())
@@ -663,7 +519,10 @@ namespace CppSharp.AST
             var type = obj as TemplateParameterType;
             if (type == null) return false;
 
-            return Parameter.Equals(type.Parameter);
+            return Parameter.Equals(type.Parameter)
+                && Depth.Equals(type.Depth)
+                && Index.Equals(type.Index)
+                && IsParameterPack.Equals(type.IsParameterPack);
         }
 
         public override int GetHashCode()
@@ -775,6 +634,14 @@ namespace CppSharp.AST
         }
     }
 
+    public class PackExpansionType : Type
+    {
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
+        {
+            return visitor.VisitPackExpansionType(this, quals);
+        }
+    }
+
     #region Primitives
 
     /// <summary>
@@ -786,19 +653,21 @@ namespace CppSharp.AST
         Void,
         Bool,
         WideChar,
-        Int8,
-        Char = Int8,
-        UInt8,
-        UChar = UInt8,
-        Int16,
-        UInt16,
-        Int32,
-        UInt32,
-        Int64,
-        UInt64,
+        Char,
+        UChar,
+        Short,
+        UShort,
+        Int,
+        UInt,
+        Long,
+        ULong,
+        LongLong,
+        ULongLong,
         Float,
         Double,
-        IntPtr
+        IntPtr,
+        UIntPtr,
+        Char16
     }
 
     /// <summary>
@@ -822,10 +691,11 @@ namespace CppSharp.AST
                 switch (Type)
                 {
                 case PrimitiveType.Bool:
-                case PrimitiveType.UInt8:
-                case PrimitiveType.UInt16:
-                case PrimitiveType.UInt32:
-                case PrimitiveType.UInt64:
+                case PrimitiveType.UChar:
+                case PrimitiveType.UShort:
+                case PrimitiveType.UInt:
+                case PrimitiveType.ULong:
+                case PrimitiveType.ULongLong:
                     return true;
                 }
 
@@ -880,6 +750,7 @@ namespace CppSharp.AST
             TypeQualifiers quals);
         T VisitDependentNameType(DependentNameType dependent,
             TypeQualifiers quals);
+        T VisitPackExpansionType(PackExpansionType packExpansionType, TypeQualifiers quals);
         T VisitCILType(CILType type, TypeQualifiers quals);
     }
 }

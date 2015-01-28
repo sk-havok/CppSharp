@@ -1,3 +1,5 @@
+using CppSharp.AST.Extensions;
+
 namespace CppSharp.AST
 {
     public enum CXXMethodKind
@@ -62,7 +64,8 @@ namespace CppSharp.AST
         Call,
         Subscript,
         Conditional,
-        Conversion
+        Conversion,
+        ExplicitConversion
     }
 
     /// <summary>
@@ -83,14 +86,15 @@ namespace CppSharp.AST
             IsVirtual = method.IsVirtual;
             IsConst = method.IsConst;
             IsImplicit = method.IsImplicit;
-            IsSynthetized = method.IsSynthetized;
             IsOverride = method.IsOverride;
             IsProxy = method.IsProxy;
+            IsStatic = method.IsStatic;
             Kind = method.Kind;
             IsDefaultConstructor = method.IsDefaultConstructor;
             IsCopyConstructor = method.IsCopyConstructor;
             IsMoveConstructor = method.IsMoveConstructor;
             Conversion = method.Conversion;
+            SynthKind = method.SynthKind;
         }
 
         public Method(Function function)
@@ -105,7 +109,7 @@ namespace CppSharp.AST
         public bool IsStatic { get; set; }
         public bool IsConst { get; set; }
         public bool IsImplicit { get; set; }
-        public bool IsSynthetized { get; set; }
+        public bool IsExplicit { get; set; }
         public bool IsOverride { get; set; }
         public bool IsProxy { get; set; }
 
@@ -144,22 +148,9 @@ namespace CppSharp.AST
 
         public Class ExplicitInterfaceImpl { get; set; }
 
-        public override QualifiedType GetFunctionType()
+        public override T Visit<T>(IDeclVisitor<T> visitor)
         {
-            var qualifiedType = base.GetFunctionType();
-            if (!IsStatic)
-            {
-                FunctionType functionType;
-                qualifiedType.Type.IsPointerTo(out functionType);
-                var instance = new Parameter
-                                {
-                                    Name = "instance",
-                                    QualifiedType = new QualifiedType(
-                                        new BuiltinType(PrimitiveType.IntPtr))
-                                };
-                functionType.Parameters.Insert(0, instance);
-            }
-            return qualifiedType;
+            return visitor.VisitMethodDecl(this);
         }
     }
 }

@@ -103,10 +103,6 @@ namespace CppSharp.AST
     /// </summary>
     public abstract class Comment
     {
-        protected Comment()
-        {
-        }
-
         public abstract void Visit<T>(ICommentVisitor<T> visitor);
     }
 
@@ -246,7 +242,7 @@ namespace CppSharp.AST
 
         public VerbatimBlockComment()
         {
-            Lines = new List<VerbatimBlockLineComment>();    
+            Lines = new List<VerbatimBlockLineComment>();
         }
 
         public override void Visit<T>(ICommentVisitor<T> visitor)
@@ -380,7 +376,7 @@ namespace CppSharp.AST
 
         public InlineCommandComment()
         {
-            Arguments = new List<Argument>();    
+            Arguments = new List<Argument>();
         }
 
         public override void Visit<T>(ICommentVisitor<T> visitor)

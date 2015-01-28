@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace CppSharp.AST
 {
@@ -24,13 +25,27 @@ namespace CppSharp.AST
         string Mangled { get; set; }
     }
 
-    [Flags]
-    public enum IgnoreFlags
+    /// <summary>
+    /// Kind of the generated declaration
+    /// </summary>
+    public enum GenerationKind
     {
-        None = 0,
-        Generation = 1 << 0,
-        Processing = 1 << 1,
-        Explicit   = 1 << 2
+        /// <summary>
+        /// Declaration is not generated.
+        /// </summary>
+        None,
+        /// <summary>
+        /// Declaration is generated.
+        /// </summary>
+        Generate,
+        /// <summary>
+        /// Declaration is generated to be used internally.
+        /// </summary>
+        Internal,
+        /// <summary>
+        /// Declaration was already generated in a linked assembly.
+        /// </summary>
+        Link, 
     }
 
     /// <summary>
@@ -38,7 +53,8 @@ namespace CppSharp.AST
     /// </summary>
     public abstract class Declaration : INamedDecl
     {
-        
+        public SourceLocation Location;
+
         private DeclarationContext @namespace;
         public DeclarationContext OriginalNamespace;
 
@@ -54,14 +70,21 @@ namespace CppSharp.AST
             }
         }
 
-        private string name;
-        public virtual string OriginalName
+        public TranslationUnit TranslationUnit
         {
-            get { return originalName; }
-            set { originalName = value; }
+            get
+            {
+                if (this is TranslationUnit)
+                    return this as TranslationUnit;
+                return Namespace.TranslationUnit;
+            }
         }
 
+        public virtual string OriginalName { get; set; }
+
         // Name of the declaration.
+        private string name;
+
         public virtual string Name
         {
             get { return name; }
@@ -73,14 +96,64 @@ namespace CppSharp.AST
             }
         }
 
+        /// <summary>
+        /// The effective name of a declaration is the logical name
+        /// for the declaration. We need this to make the distiction between
+        /// the real and the "effective" name of the declaration to properly
+        /// support things like inline namespaces when handling type maps.
+        /// </summary>
+        public virtual string LogicalName
+        {
+            get { return Name; }
+        }
+
+        /// <summary>
+        /// The effective original name of a declaration is the logical
+        /// original name for the declaration.
+        /// </summary>
+        public virtual string LogicalOriginalName
+        {
+            get { return OriginalName; }
+        }
+
+        private string GetQualifiedName(Func<Declaration, string> getName,
+            Func<Declaration, DeclarationContext> getNamespace)
+        {
+            if (Namespace == null)
+                return getName(this);
+
+            if (Namespace.IsRoot)
+                return getName(this);
+
+            var namespaces = GatherNamespaces(getNamespace(this));
+            namespaces.Reverse();
+
+            var names = namespaces.Select(getName).ToList();
+            names.Add(getName(this));
+            names = names.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+
+            return string.Join("::", names);
+        }
+
+        private List<Declaration> GatherNamespaces(DeclarationContext @namespace)
+        {
+            var namespaces = new List<Declaration>();
+
+            var currentNamespace = @namespace;
+            while (currentNamespace != null)
+            {
+                namespaces.Add(currentNamespace);
+                currentNamespace = currentNamespace.Namespace;
+            }
+
+            return namespaces;
+        }
+
         public string QualifiedName
         {
             get
             {
-                if (Namespace == null)
-                    return Name;
-                return Namespace.IsRoot ? Name
-                    : string.Format("{0}::{1}", Namespace.QualifiedName, Name);
+                return GetQualifiedName(decl => decl.Name, decl => decl.Namespace);
             }
         }
 
@@ -88,89 +161,114 @@ namespace CppSharp.AST
         {
             get
             {
-                if (OriginalNamespace == null)
-                    return OriginalName;
-                return OriginalNamespace.IsRoot ? OriginalName
-                    : string.Format("{0}::{1}", OriginalNamespace.QualifiedOriginalName, OriginalName);
+                return GetQualifiedName(
+                    decl => decl.OriginalName, decl => decl.OriginalNamespace);
+            }
+        }
+
+        public string QualifiedLogicalName
+        {
+            get
+            { 
+                return GetQualifiedName(
+                    decl => decl.LogicalName, decl => decl.Namespace);
+            }
+        }
+
+        public string QualifiedLogicalOriginalName
+        {
+            get
+            {
+                return GetQualifiedName(
+                    decl => decl.LogicalOriginalName, decl => decl.OriginalNamespace);
             }
         }
 
         // Comment associated with declaration.
         public RawComment Comment;
 
-        // Keeps flags to know the type of ignore.
-        public IgnoreFlags IgnoreFlags { get; set; }
+        private GenerationKind? generationKind;
 
-        // Whether the declaration should be generated.
+        public GenerationKind GenerationKind
+        {
+            get
+            {
+                if (generationKind.HasValue)
+                    return generationKind.Value;
+
+                if (Namespace != null)
+                    // fields in nested classes have to always be generated
+                    return !Namespace.IsGenerated && this is Field ? GenerationKind.Internal : Namespace.GenerationKind;
+
+                return GenerationKind.Generate;
+            }
+            set { generationKind = value; }
+        }
+
+        /// <summary>
+        /// Whether the declaration should be generated.
+        /// </summary>
         public virtual bool IsGenerated
         {
             get
             {
-                var isGenerated = !IgnoreFlags.HasFlag(IgnoreFlags.Generation);
-
-                if (Namespace == null)
-                    return isGenerated;
-
-                return isGenerated && Namespace.IsGenerated;
-            }
-
-            set
-            {
-                if (value)
-                    IgnoreFlags &= ~IgnoreFlags.Generation;
-                else
-                    IgnoreFlags |= IgnoreFlags.Generation;
+                return GenerationKind == GenerationKind.Generate;
             }
         }
 
-        // Whether the declaration should be processed.
-        public virtual bool IsProcessed
+        /// <summary>
+        /// Whether the declaration was explicitly set to be generated via
+        /// the GenerationKind propery as opposed to the default generated state.
+        /// </summary>
+        public virtual bool IsExplicitlyGenerated
         {
             get
             {
-                var isProcessed = !IgnoreFlags.HasFlag(IgnoreFlags.Processing);
-
-                if (Namespace == null)
-                    return isProcessed;
-                
-                return isProcessed && Namespace.IsProcessed;
-            }
-
-            set
-            {
-                if (value)
-                    IgnoreFlags &= ~IgnoreFlags.Processing;
-                else
-                    IgnoreFlags |= IgnoreFlags.Processing;
+                return generationKind.HasValue && generationKind.Value == GenerationKind.Generate;
             }
         }
 
-        // Whether the declaration was explicitly ignored.
-        public bool ExplicityIgnored
+        /// <summary>
+        /// Whether the declaration internal bindings should be generated.
+        /// </summary>
+        public bool IsInternal
         {
-            get { return IgnoreFlags.HasFlag(IgnoreFlags.Explicit); }
-
-            set
+            get
             {
-                if (value)
-                    IgnoreFlags |= IgnoreFlags.Explicit;
-                else
-                    IgnoreFlags &= ~IgnoreFlags.Explicit;
+                return GenerationKind == GenerationKind.Internal;
             }
         }
 
-        // Whether the declaration should be ignored.
+        /// <summary>
+        /// Whether a binded version of this declaration is available.
+        /// </summary>
+        public bool IsDeclared
+        {
+            get
+            {
+                var k = GenerationKind;
+                return k == GenerationKind.Generate
+                    || k == GenerationKind.Internal
+                    || k == GenerationKind.Link;
+            }
+        }
+
+        public void ExplicitlyIgnore()
+        {
+            GenerationKind = GenerationKind.None;
+        }
+
+        [Obsolete("Replace set by ExplicitlyIgnore(). Replace get by GenerationKind == GenerationKind.None.")]
+        public bool ExplicityIgnored 
+        { 
+            get { return GenerationKind == GenerationKind.None; }
+            set { if (value) ExplicitlyIgnore(); }
+        }
+
         public virtual bool Ignore
         {
-            get
-            {
-                var isIgnored = IgnoreFlags != IgnoreFlags.None;
-
-                if (Namespace != null)
-                    isIgnored |= Namespace.Ignore;
-
-                return isIgnored;
-            }
+            get { return GenerationKind == GenerationKind.None; }
+            set { if (value) ExplicitlyIgnore(); }
         }
 
         public AccessSpecifier Access { get; set; }
@@ -198,14 +296,20 @@ namespace CppSharp.AST
 
         // Pointer to the original declaration from Clang.
         public IntPtr OriginalPtr;
-        private string originalName;
+
+        // The Unified Symbol Resolution (USR) for the declaration.
+        // A Unified Symbol Resolution (USR) is a string that identifies a 
+        // particular entity (function, class, variable, etc.) within a program.
+        // USRs can be compared across translation units to determine, e.g., 
+        // when references in one translation refer to an entity defined in 
+        // another translation unit. 
+        public string USR;
 
         public List<Attribute> Attributes { get; private set; }
 
         protected Declaration()
         {
             Access = AccessSpecifier.Public;
-            IgnoreFlags = IgnoreFlags.None;
             ExcludeFromPasses = new HashSet<System.Type>();
             PreprocessedEntities = new List<PreprocessedEntity>();
             Attributes = new List<Attribute>();
@@ -221,10 +325,10 @@ namespace CppSharp.AST
             : this()
         {
             Namespace = declaration.Namespace;
-            originalName = declaration.OriginalName;
+            OriginalName = declaration.OriginalName;
             name = declaration.Name;
             Comment = declaration.Comment;
-            IgnoreFlags = declaration.IgnoreFlags;
+            generationKind = declaration.generationKind;
             Access = declaration.Access;
             DebugText = declaration.DebugText;
             IsIncomplete = declaration.IsIncomplete;
@@ -277,5 +381,6 @@ namespace CppSharp.AST
         T VisitNamespace(Namespace @namespace);
         T VisitEvent(Event @event);
         T VisitProperty(Property @property);
+        T VisitFriend(Friend friend);
     }
 }

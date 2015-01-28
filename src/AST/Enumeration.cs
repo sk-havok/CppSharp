@@ -6,14 +6,14 @@ namespace CppSharp.AST
     /// <summary>
     /// Represents a C/C++ enumeration declaration.
     /// </summary>
-    public class Enumeration : Declaration
+    public class Enumeration : DeclarationContext
     {
         [Flags]
         public enum EnumModifiers
         {
-            Anonymous,
-            Scoped,
-            Flags
+            Anonymous = 1 << 0,
+            Scoped = 1 << 1,
+            Flags = 1 << 2,
         }
 
         /// <summary>
@@ -47,7 +47,7 @@ namespace CppSharp.AST
         {
             Items = new List<Item>();
             ItemsByName = new Dictionary<string, Item>();
-            BuiltinType = new BuiltinType(PrimitiveType.Int32);
+            BuiltinType = new BuiltinType(PrimitiveType.Int);
         }
 
         public Enumeration AddItem(Item item)

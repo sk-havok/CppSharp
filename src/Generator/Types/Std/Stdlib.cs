@@ -1,5 +1,7 @@
 using CppSharp.AST;
+using CppSharp.AST.Extensions;
 using CppSharp.Generators;
+using CppSharp.Generators.AST;
 using CppSharp.Generators.CLI;
 using CppSharp.Generators.CSharp;
 
@@ -8,13 +10,23 @@ namespace CppSharp.Types.Std
     [TypeMap("va_list")]
     public class VaList : TypeMap
     {
+        public override string CLISignature(CLITypePrinterContext ctx)
+        {
+            return "va_list";
+        }
+
+        public override string CSharpSignature(CSharpTypePrinterContext ctx)
+        {
+            return "va_list";
+        }
+
         public override bool IsIgnored
         {
             get { return true; }
         }
     }
 
-    [TypeMap("std::string")]
+    [TypeMap("std::string", GeneratorKind.CLI)]
     public class String : TypeMap
     {
         public override string CLISignature(CLITypePrinterContext ctx)
@@ -24,12 +36,14 @@ namespace CppSharp.Types.Std
 
         public override void CLIMarshalToNative(MarshalContext ctx)
         {
-            ctx.Return.Write("clix::marshalString<clix::E_UTF8>({0})", ctx.Parameter.Name);
+            ctx.Return.Write("clix::marshalString<clix::E_UTF8>({0})",
+                ctx.Parameter.Name);
         }
 
         public override void CLIMarshalToManaged(MarshalContext ctx)
         {
-            ctx.Return.Write("clix::marshalString<clix::E_UTF8>({0})", ctx.ReturnVarName);
+            ctx.Return.Write("clix::marshalString<clix::E_UTF8>({0})",
+                ctx.ReturnVarName);
         }
 
         public override string CSharpSignature(CSharpTypePrinterContext ctx)
@@ -58,12 +72,14 @@ namespace CppSharp.Types.Std
 
         public override void CLIMarshalToNative(MarshalContext ctx)
         {
-            ctx.Return.Write("clix::marshalString<clix::E_UTF16>({0})", ctx.Parameter.Name);
+            ctx.Return.Write("clix::marshalString<clix::E_UTF16>({0})",
+                ctx.Parameter.Name);
         }
 
         public override void CLIMarshalToManaged(MarshalContext ctx)
         {
-            ctx.Return.Write("clix::marshalString<clix::E_UTF16>({0})", ctx.ReturnVarName);
+            ctx.Return.Write("clix::marshalString<clix::E_UTF16>({0})",
+                ctx.ReturnVarName);
         }
 
         public override string CSharpSignature(CSharpTypePrinterContext ctx)
@@ -109,8 +125,13 @@ namespace CppSharp.Types.Std
         {
             var templateType = Type as TemplateSpecializationType;
             var type = templateType.Arguments[0].Type;
+            var isPointerToPrimitive = type.Type.IsPointerToPrimitiveType();
+            var managedType = isPointerToPrimitive
+                ? new CILType(typeof(System.IntPtr))
+                : type.Type;
 
-            var entryString = (ctx.Parameter != null) ? ctx.Parameter.Name : ctx.ArgName;
+            var entryString = (ctx.Parameter != null) ? ctx.Parameter.Name
+                : ctx.ArgName;
 
             var tmpVarName = "_tmp" + entryString;
 
@@ -120,7 +141,7 @@ namespace CppSharp.Types.Std
             ctx.SupportBefore.WriteLine("auto {0} = std::vector<{1}>();",
                 tmpVarName, nativeType);
             ctx.SupportBefore.WriteLine("for each({0} _element in {1})",
-                type.ToString(), entryString);
+                managedType, entryString);
             ctx.SupportBefore.WriteStartBraceIndent();
             {
                 var param = new Parameter
@@ -141,10 +162,15 @@ namespace CppSharp.Types.Std
                 if (!string.IsNullOrWhiteSpace(marshal.Context.SupportBefore))
                     ctx.SupportBefore.Write(marshal.Context.SupportBefore);
 
-                ctx.SupportBefore.WriteLine("auto _marshalElement = {0};",
+                if (isPointerToPrimitive)
+                    ctx.SupportBefore.WriteLine("auto _marshalElement = {0}.ToPointer();",
+                        marshal.Context.Return);
+                else
+                    ctx.SupportBefore.WriteLine("auto _marshalElement = {0};",
                     marshal.Context.Return);
 
-                ctx.SupportBefore.WriteLine("{0}.push_back(_marshalElement);",tmpVarName);
+                ctx.SupportBefore.WriteLine("{0}.push_back(_marshalElement);",
+                    tmpVarName);
             }
             
             ctx.SupportBefore.WriteCloseBraceIndent();
@@ -156,11 +182,17 @@ namespace CppSharp.Types.Std
         {
             var templateType = Type as TemplateSpecializationType;
             var type = templateType.Arguments[0].Type;
+            var isPointerToPrimitive = type.Type.IsPointerToPrimitiveType();
+            var managedType = isPointerToPrimitive
+                ? new CILType(typeof(System.IntPtr))
+                : type.Type;
             var tmpVarName = "_tmp" + ctx.ArgName;
             
-            ctx.SupportBefore.WriteLine("auto {0} = gcnew System::Collections::Generic::List<{1}>();",
-                tmpVarName, type.ToString());
-            ctx.SupportBefore.WriteLine("for(auto _element : {0})",ctx.ReturnVarName);
+            ctx.SupportBefore.WriteLine(
+                "auto {0} = gcnew System::Collections::Generic::List<{1}>();",
+                tmpVarName, managedType);
+            ctx.SupportBefore.WriteLine("for(auto _element : {0})",
+                ctx.ReturnVarName);
             ctx.SupportBefore.WriteStartBraceIndent();
             {
                 var elementCtx = new MarshalContext(ctx.Driver)
@@ -175,9 +207,15 @@ namespace CppSharp.Types.Std
                 if (!string.IsNullOrWhiteSpace(marshal.Context.SupportBefore))
                     ctx.SupportBefore.Write(marshal.Context.SupportBefore);
 
-                ctx.SupportBefore.WriteLine("auto _marshalElement = {0};", marshal.Context.Return);
+                ctx.SupportBefore.WriteLine("auto _marshalElement = {0};",
+                    marshal.Context.Return);
 
-                ctx.SupportBefore.WriteLine("{0}->Add(_marshalElement);", tmpVarName);
+                if (isPointerToPrimitive)
+                    ctx.SupportBefore.WriteLine("{0}->Add({1}(_marshalElement));",
+                        tmpVarName, managedType);
+                else
+                    ctx.SupportBefore.WriteLine("{0}->Add(_marshalElement);",
+                        tmpVarName);
             }
             ctx.SupportBefore.WriteCloseBraceIndent();
 
@@ -215,7 +253,8 @@ namespace CppSharp.Types.Std
         public override string CLISignature(CLITypePrinterContext ctx)
         {
             var type = Type as TemplateSpecializationType;
-            return string.Format("System::Collections::Generic::Dictionary<{0}, {1}>^",
+            return string.Format(
+                "System::Collections::Generic::Dictionary<{0}, {1}>^",
                 type.Arguments[0].Type, type.Arguments[1].Type);
         }
 
@@ -231,8 +270,12 @@ namespace CppSharp.Types.Std
 
         public override string CSharpSignature(CSharpTypePrinterContext ctx)
         {
+            if (ctx.CSharpKind == CSharpTypePrinterContextKind.Native)
+                return "Std.Map";
+
             var type = Type as TemplateSpecializationType;
-            return string.Format("System.Collections.Generic.Dictionary<{0}, {1}>",
+            return string.Format(
+                "System.Collections.Generic.Dictionary<{0}, {1}>",
                 type.Arguments[0].Type, type.Arguments[1].Type);
         }
     }
@@ -259,6 +302,46 @@ namespace CppSharp.Types.Std
         public override void CLIMarshalToManaged(MarshalContext ctx)
         {
             throw new System.NotImplementedException();
+        }
+    }
+
+    [TypeMap("std::ostream", GeneratorKind.CLI)]
+    public class OStream : TypeMap
+    {
+        public override string CLISignature(CLITypePrinterContext ctx)
+        {
+            return "System::IO::TextWriter^";
+        }
+
+        public override void CLIMarshalToNative(MarshalContext ctx)
+        {
+            var marshal = (CLIMarshalManagedToNativePrinter) ctx.MarshalToNative;
+            if (!ctx.Parameter.Type.Desugar().IsPointer())
+                marshal.ArgumentPrefix.Write("*");
+            var marshalCtxName = string.Format("ctx_{0}", ctx.Parameter.Name);
+            ctx.SupportBefore.WriteLine("msclr::interop::marshal_context {0};", marshalCtxName);
+            ctx.Return.Write("{0}.marshal_as<std::ostream*>({1})",
+                marshalCtxName, ctx.Parameter.Name);
+        }
+    }
+
+    [TypeMap("std::nullptr_t")]
+    public class NullPtr : TypeMap
+    {
+        public override bool DoesMarshalling { get { return false; } }
+
+        public override void CLITypeReference(CLITypeReferenceCollector collector,
+            ASTRecord<Declaration> loc)
+        {
+            var typeRef = collector.GetTypeReference(loc.Value);
+
+            var include = new Include
+            {
+                File = "cstddef",
+                Kind = Include.IncludeKind.Angled,
+            };
+
+            typeRef.Include = include;
         }
     }
 }
