@@ -172,15 +172,13 @@ namespace CppSharp.Generators.CLI
             if (TranslationUnit == record.Value.Namespace.TranslationUnit)
                 return false;
 
-            return record.IsBaseClass() || record.IsFieldValueType();
+            return record.IsBaseClass() || record.IsFieldValueType() || record.IsDelegate();
         }
 
         public override bool VisitDeclaration(Declaration decl)
         {
-            if (decl.Namespace != null && decl.Namespace.TranslationUnit.IsSystemHeader)
-                return false;
-
-            return decl.IsDeclared;
+            return decl.IsDeclared &&
+                (decl.Namespace == null || !decl.TranslationUnit.IsSystemHeader);
         }
 
         public override bool VisitClassDecl(Class @class)

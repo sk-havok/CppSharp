@@ -1,7 +1,6 @@
 ﻿
 using System;
 using System.Linq;
-using Mono.Options;
 
 namespace CppSharp.AST
 {
@@ -39,12 +38,9 @@ namespace CppSharp.AST
             if (method.Access == AccessSpecifier.Private && !method.IsOverride && !method.IsExplicitlyGenerated)
                 return true;
 
-            //Ignore copy constructor if a base class don't has or has a private copy constructor
+            // Ignore copy constructor if a base class don't has or has a private copy constructor
             if (method.IsCopyConstructor)
             {
-                if (!options.GenerateCopyConstructors)
-                    return true;
-
                 var baseClass = @class;
                 while (baseClass != null && baseClass.HasBaseClass)
                 {
@@ -55,7 +51,7 @@ namespace CppSharp.AST
                         if (copyConstructor == null
                             || copyConstructor.Access == AccessSpecifier.Private
                             || !copyConstructor.IsDeclared)
-                            return true;   
+                            return true;
                     }
                 }
             }
@@ -153,7 +149,7 @@ namespace CppSharp.AST
                 // These binary operators can be overloaded
                 case CXXOperatorKind.Star: return "operator *";
                 case CXXOperatorKind.Slash: return "operator /";
-                case CXXOperatorKind.Percent: return "operator +";
+                case CXXOperatorKind.Percent: return "operator %";
                 case CXXOperatorKind.Amp: return "operator &";
                 case CXXOperatorKind.Pipe: return "operator |";
                 case CXXOperatorKind.Caret: return "operator ^";
@@ -194,6 +190,7 @@ namespace CppSharp.AST
                 case CXXOperatorKind.Arrow:
                 case CXXOperatorKind.Call:
                 case CXXOperatorKind.Conditional:
+                case CXXOperatorKind.Coawait:
                 case CXXOperatorKind.New:
                 case CXXOperatorKind.Delete:
                 case CXXOperatorKind.Array_New:

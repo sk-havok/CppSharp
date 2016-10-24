@@ -1,8 +1,8 @@
 ﻿using CppSharp.AST;
 using CppSharp.Generators.CSharp;
-using System.Linq;
 using CppSharp.Passes;
 using NUnit.Framework;
+using System.Linq;
 
 namespace CppSharp.Generator.Tests.Passes
 {
@@ -20,7 +20,7 @@ namespace CppSharp.Generator.Tests.Passes
         public void Setup()
         {
             ParseLibrary("Passes.h");
-            passBuilder = new PassBuilder<TranslationUnitPass>(Driver);
+            passBuilder = new PassBuilder<TranslationUnitPass>(Driver.Context);
         }
 
         [Test]
@@ -46,7 +46,7 @@ namespace CppSharp.Generator.Tests.Passes
 
             Assert.IsNull(c.Method("Start"));
 
-            passBuilder.AddPass( new FunctionToInstanceMethodPass());
+            passBuilder.AddPass(new FunctionToInstanceMethodPass());
             passBuilder.RunPasses(pass => pass.VisitLibrary(AstContext));
 
             Assert.IsNotNull(c.Method("Start"));
@@ -70,18 +70,23 @@ namespace CppSharp.Generator.Tests.Passes
         [Test]
         public void TestCaseRenamePass()
         {
-            Type.TypePrinterDelegate += type => type.Visit(new CSharpTypePrinter(Driver)).Type;
+            Type.TypePrinterDelegate += TypePrinterDelegate;
 
             var c = AstContext.Class("TestRename");
 
+            passBuilder.AddPass(new FieldToPropertyPass());
+            passBuilder.RunPasses(pass => pass.VisitLibrary(AstContext));
+
             var method = c.Method("lowerCaseMethod");
-            var field = c.Field("lowerCaseField");
+            var property = c.Properties.Find(p => p.Name == "lowerCaseField");
 
             passBuilder.RenameDeclsUpperCase(RenameTargets.Any);
             passBuilder.RunPasses(pass => pass.VisitLibrary(AstContext));
 
             Assert.That(method.Name, Is.EqualTo("LowerCaseMethod"));
-            Assert.That(field.Name, Is.EqualTo("LowerCaseField"));
+            Assert.That(property.Name, Is.EqualTo("LowerCaseField"));
+
+            Type.TypePrinterDelegate -= TypePrinterDelegate;
         }
 
         [Test]
@@ -190,6 +195,32 @@ namespace CppSharp.Generator.Tests.Passes
             Assert.IsNotNull(nonConstMethodWithParam);
             Assert.IsTrue(constMethodWithParam.GenerationKind == GenerationKind.None);
             Assert.IsTrue(nonConstMethodWithParam.GenerationKind == GenerationKind.Generate);
+        }
+
+        [Test]
+        public void TestSetMethodAsInternal()
+        {
+            var c = AstContext.Class("TestMethodAsInternal");
+            var method = c.Method("beInternal");
+            Assert.AreEqual(method.Access, AccessSpecifier.Public);
+            passBuilder.AddPass(new CheckMacroPass());
+            passBuilder.RunPasses(pass => pass.VisitLibrary(AstContext));
+            Assert.AreEqual(method.Access, AccessSpecifier.Internal);
+        }
+
+        private string TypePrinterDelegate(CppSharp.AST.Type type)
+        {
+            return type.Visit(new CSharpTypePrinter(Driver.Context)).Type;
+        }
+
+        [Test]
+        public void TestAbstractOperator()
+        {
+            passBuilder.AddPass(new CheckOperatorsOverloadsPass());
+            passBuilder.RunPasses(pass => pass.VisitLibrary(AstContext));
+
+            var @class = AstContext.FindDecl<Class>("ClassWithAbstractOperator").First();
+            Assert.AreEqual(@class.Operators.First().GenerationKind, GenerationKind.None);
         }
     }
 }

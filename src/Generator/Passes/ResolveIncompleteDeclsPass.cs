@@ -1,38 +1,34 @@
-﻿using CppSharp.AST;
+﻿using System.Linq;
+using CppSharp.AST;
 
 namespace CppSharp.Passes
 {
     public class ResolveIncompleteDeclsPass : TranslationUnitPass
     {
-        public override bool VisitDeclaration(Declaration decl)
-        {
-            if (AlreadyVisited(decl))
-                return false;
-
-            return decl.IsGenerated;
-        }
-
         public override bool VisitClassDecl(Class @class)
         {
-            if (!@class.IsIncomplete)
-                goto Out;
+            if (!base.VisitClassDecl(@class))
+                return false;
 
-            if (@class.CompleteDeclaration != null)
-                goto Out;
+            EnsureCompleteDeclaration(@class);
 
-            @class.CompleteDeclaration =
-                AstContext.FindCompleteClass(@class.QualifiedName);
+            return true;
+        }
 
-            if (@class.CompleteDeclaration == null)
-            {
-                @class.GenerationKind = GenerationKind.Internal;
-                Driver.Diagnostics.Debug("Unresolved declaration: {0}",
-                    @class.Name);
-            }
+        public override bool VisitClassTemplateDecl(ClassTemplate template)
+        {
+            if (!base.VisitClassTemplateDecl(template))
+                return false;
 
-        Out:
+            EnsureCompleteDeclaration(template.TemplatedDecl);
 
-            return base.VisitClassDecl(@class);
+            template.TemplatedDecl = template.TemplatedDecl.CompleteDeclaration ?? template.TemplatedDecl;
+            // store all spesializations in the real template class because ClassTemplateDecl only forwards
+            foreach (var specialization in template.Specializations.Where(
+                s => !s.IsIncomplete && !template.TemplatedClass.Specializations.Contains(s)))
+                template.TemplatedClass.Specializations.Add(specialization);
+
+            return true;
         }
 
         public override bool VisitEnumDecl(Enumeration @enum)
@@ -47,18 +43,36 @@ namespace CppSharp.Passes
                 goto Out;
 
             @enum.CompleteDeclaration =
-                AstContext.FindCompleteEnum(@enum.QualifiedName);
+                ASTContext.FindCompleteEnum(@enum.QualifiedName);
 
             if (@enum.CompleteDeclaration == null)
             {
                 @enum.GenerationKind = GenerationKind.Internal;
-                Driver.Diagnostics.EmitWarning(DiagnosticId.UnresolvedDeclaration,
-                    "Unresolved declaration: {0}", @enum.Name);
+                Diagnostics.Warning("Unresolved declaration: {0}", @enum.Name);
             }
 
         Out:
 
             return base.VisitEnumDecl(@enum);
+        }
+
+        private void EnsureCompleteDeclaration(Declaration declaration)
+        {
+            if (!declaration.IsIncomplete)
+                return;
+
+            if (declaration.CompleteDeclaration != null)
+                return;
+
+            declaration.CompleteDeclaration =
+                ASTContext.FindCompleteClass(declaration.QualifiedName);
+
+            if (declaration.CompleteDeclaration == null)
+            {
+                declaration.GenerationKind = GenerationKind.Internal;
+                Diagnostics.Debug("Unresolved declaration: {0}",
+                    declaration.Name);
+            }
         }
     }
 }

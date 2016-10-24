@@ -11,7 +11,7 @@ namespace CppSharp.Passes
     {
         public CheckStaticClass()
         {
-            Options.VisitClassBases = false;
+            VisitOptions.VisitClassBases = false;
         }
 
         public override bool VisitDeclaration(Declaration decl)
@@ -19,7 +19,7 @@ namespace CppSharp.Passes
             if (!base.VisitDeclaration(decl))
                 return false;
 
-            if (Driver.Options.IsCSharpGenerator)
+            if (Options.IsCSharpGenerator)
             {
                 // C# cannot have protected members in static classes.
                 var @class = decl.Namespace as Class;
@@ -84,6 +84,11 @@ namespace CppSharp.Passes
             // good enough for the time being.
             if (@class.Functions.Any(ReturnsClassInstance) ||
                 @class.Methods.Any(ReturnsClassInstance))
+                return false;
+
+            // If the class is to be used as an opaque type, then it cannot be
+            // bound as static.
+            if (@class.IsOpaque)
                 return false;
 
             // TODO: We should take C++ friends into account here, they might allow

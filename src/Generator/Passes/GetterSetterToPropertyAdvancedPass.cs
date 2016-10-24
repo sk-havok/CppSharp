@@ -15,15 +15,15 @@ namespace CppSharp.Passes
     {
         private class PropertyGenerator
         {
-            private readonly IDiagnosticConsumer log;
+            private readonly IDiagnostics Diagnostics;
             private readonly List<Method> getters = new List<Method>();
             private readonly List<Method> setters = new List<Method>();
             private readonly List<Method> setMethods = new List<Method>();
             private readonly List<Method> nonSetters = new List<Method>();
 
-            public PropertyGenerator(Class @class, IDiagnosticConsumer log)
+            public PropertyGenerator(Class @class, IDiagnostics diags)
             {
-                this.log = log;
+                Diagnostics = diags;
                 foreach (var method in @class.Methods.Where(
                     m => !m.IsConstructor && !m.IsDestructor && !m.IsOperator && m.IsGenerated))
                     DistributeMethod(method);
@@ -37,7 +37,7 @@ namespace CppSharp.Passes
                 foreach (Method getter in
                     from getter in getters
                     where getter.IsGenerated &&
-                          ((Class) getter.Namespace).Methods.All(m => m == getter || m.Name != getter.Name)
+                          ((Class) getter.Namespace).Methods.All(m => m == getter || !m.IsGenerated || m.Name != getter.Name)
                     select getter)
                 {
                     // Make it a read-only property
@@ -49,12 +49,15 @@ namespace CppSharp.Passes
             {
                 foreach (var setter in settersToUse)
                 {
-                    Class type = (Class) setter.Namespace;
-                    StringBuilder nameBuilder = new StringBuilder(setter.Name.Substring(3));
+                    var type = (Class) setter.Namespace;
+                    var firstWord = GetFirstWord(setter.Name);
+                    var nameBuilder = new StringBuilder(setter.Name.Substring(firstWord.Length));
                     if (char.IsLower(setter.Name[0]))
                         nameBuilder[0] = char.ToLowerInvariant(nameBuilder[0]);
                     string afterSet = nameBuilder.ToString();
-                    foreach (var getter in nonSetters.Where(m => m.Namespace == type))
+                    var s = setter;
+                    foreach (var getter in nonSetters.Where(m => m.Namespace == type &&
+                                                                 m.ExplicitInterfaceImpl == s.ExplicitInterfaceImpl))
                     {
                         var name = GetReadWritePropertyName(getter, afterSet);
                         if (name == afterSet &&
@@ -67,25 +70,25 @@ namespace CppSharp.Passes
                                 var oldName = method.Name;
                                 method.Name = string.Format("get{0}{1}",
                                     char.ToUpperInvariant(method.Name[0]), method.Name.Substring(1));
-                                log.Debug("Method {0}::{1} renamed to {2}", method.Namespace.Name, oldName, method.Name);
+                                Diagnostics.Debug("Method {0}::{1} renamed to {2}", method.Namespace.Name, oldName, method.Name);
                             }
                             foreach (var @event in type.Events.Where(e => e.Name == name))
                             {
                                 var oldName = @event.Name;
                                 @event.Name = string.Format("on{0}{1}",
                                     char.ToUpperInvariant(@event.Name[0]), @event.Name.Substring(1));
-                                log.Debug("Event {0}::{1} renamed to {2}", @event.Namespace.Name, oldName, @event.Name);
+                                Diagnostics.Debug("Event {0}::{1} renamed to {2}", @event.Namespace.Name, oldName, @event.Name);
                             }
                             getter.Name = name;
                             GenerateProperty(getter.Namespace, getter, readOnly ? null : setter);
                             goto next;
                         }
                     }
-                    Property baseVirtualProperty = type.GetRootBaseProperty(new Property { Name = afterSet });
-                    if (!type.IsInterface && baseVirtualProperty != null)
+                    Property baseProperty = type.GetBaseProperty(new Property { Name = afterSet }, getTopmost: true);
+                    if (!type.IsInterface && baseProperty != null && baseProperty.IsVirtual && setter.IsVirtual)
                     {
-                        bool isReadOnly = baseVirtualProperty.SetMethod == null;
-                        GenerateProperty(setter.Namespace, baseVirtualProperty.GetMethod,
+                        bool isReadOnly = baseProperty.SetMethod == null;
+                        GenerateProperty(setter.Namespace, baseProperty.GetMethod,
                             readOnly || isReadOnly ? null : setter);
                     }
                 next:
@@ -95,14 +98,14 @@ namespace CppSharp.Passes
                 {
                     Class type = (Class) nonSetter.Namespace;
                     string name = GetPropertyName(nonSetter.Name);
-                    Property baseVirtualProperty = type.GetRootBaseProperty(new Property { Name = name });
-                    if (!type.IsInterface && baseVirtualProperty != null)
+                    Property baseProperty = type.GetBaseProperty(new Property { Name = name }, getTopmost: true);
+                    if (!type.IsInterface && baseProperty != null && baseProperty.IsVirtual)
                     {
-                        bool isReadOnly = baseVirtualProperty.SetMethod == null;
+                        bool isReadOnly = baseProperty.SetMethod == null;
                         if (readOnly == isReadOnly)
                         {
                             GenerateProperty(nonSetter.Namespace, nonSetter,
-                                readOnly ? null : baseVirtualProperty.SetMethod);
+                                readOnly ? null : baseProperty.SetMethod);
                         }
                     }
                 }
@@ -111,7 +114,7 @@ namespace CppSharp.Passes
             private static string GetReadWritePropertyName(INamedDecl getter, string afterSet)
             {
                 string name = GetPropertyName(getter.Name);
-                if (name != afterSet && name.StartsWith("is"))
+                if (name != afterSet && name.StartsWith("is", StringComparison.Ordinal))
                 {
                     name = char.ToLowerInvariant(name[2]) + name.Substring(3);
                 }
@@ -132,56 +135,85 @@ namespace CppSharp.Passes
 
             private static void GenerateProperty(DeclarationContext context, Method getter, Method setter = null)
             {
-                Class type = (Class) context;
-                if (type.Properties.All(p => getter.Name != p.Name ||
-                        p.ExplicitInterfaceImpl != getter.ExplicitInterfaceImpl))
+                var type = (Class) context;
+                var name = GetPropertyName(getter.Name);
+                if (type.Properties.Any(p => p.Name == name &&
+                    p.ExplicitInterfaceImpl == getter.ExplicitInterfaceImpl))
+                    return;
+
+                var property = new Property
                 {
-                    Property property = new Property();
-                    property.Name = GetPropertyName(getter.Name);
-                    property.Namespace = type;
-                    property.QualifiedType = getter.OriginalReturnType;
-                    if (getter.IsOverride || (setter != null && setter.IsOverride))
+                    Access = getter.Access == AccessSpecifier.Public ||
+                        (setter != null && setter.Access == AccessSpecifier.Public) ?
+                            AccessSpecifier.Public : AccessSpecifier.Protected,
+                    Name = name,
+                    Namespace = type,
+                    QualifiedType = getter.OriginalReturnType,
+                    OriginalNamespace = getter.OriginalNamespace
+                };
+                if (getter.IsOverride || (setter != null && setter.IsOverride))
+                {
+                    var baseVirtualProperty = type.GetBaseProperty(property, getTopmost: true);
+                    if (baseVirtualProperty == null && type.GetBaseMethod(getter, getTopmost: true).IsGenerated)
+                        throw new Exception(string.Format(
+                            "Property {0} has a base property null but its getter has a generated base method.",
+                            getter.QualifiedOriginalName));
+                    if (baseVirtualProperty != null && !baseVirtualProperty.IsVirtual)
                     {
-                        Property baseVirtualProperty = type.GetRootBaseProperty(property);
-                        if (baseVirtualProperty.SetMethod == null)
-                            setter = null;
+                        // the only way the above can happen is if we are generating properties in abstract implementations
+                        // in which case we can have less naming conflicts since the abstract base can also contain non-virtual properties
+                        if (getter.SynthKind == FunctionSynthKind.AbstractImplCall)
+                            return;
+                        throw new Exception(string.Format(
+                            "Base of property {0} is not virtual while the getter is.",
+                            getter.QualifiedOriginalName));
                     }
-                    property.GetMethod = getter;
-                    property.SetMethod = setter;
-                    property.ExplicitInterfaceImpl = getter.ExplicitInterfaceImpl;
-                    if (property.ExplicitInterfaceImpl == null && setter != null)
-                    {
-                        property.ExplicitInterfaceImpl = setter.ExplicitInterfaceImpl;
-                    }
-                    if (getter.Comment != null)
-                    {
-                        var comment = new RawComment();
-                        comment.Kind = getter.Comment.Kind;
-                        comment.BriefText = getter.Comment.BriefText;
-                        comment.Text = getter.Comment.Text;
-                        if (getter.Comment.FullComment != null)
-                        {
-                            comment.FullComment = new FullComment();
-                            comment.FullComment.Blocks.AddRange(getter.Comment.FullComment.Blocks);
-                            if (setter != null && setter.Comment != null)
-                            {
-                                comment.BriefText += Environment.NewLine + setter.Comment.BriefText;
-                                comment.Text += Environment.NewLine + setter.Comment.Text;
-                                comment.FullComment.Blocks.AddRange(setter.Comment.FullComment.Blocks);
-                            }
-                        }
-                        property.Comment = comment;
-                    }
-                    type.Properties.Add(property);
-                    getter.GenerationKind = GenerationKind.Internal;
-                    if (setter != null)
-                        setter.GenerationKind = GenerationKind.Internal;
+                    if (baseVirtualProperty != null && baseVirtualProperty.SetMethod == null)
+                        setter = null;
                 }
+                property.GetMethod = getter;
+                property.SetMethod = setter;
+                property.ExplicitInterfaceImpl = getter.ExplicitInterfaceImpl;
+                if (property.ExplicitInterfaceImpl == null && setter != null)
+                {
+                    property.ExplicitInterfaceImpl = setter.ExplicitInterfaceImpl;
+                }
+                if (getter.Comment != null)
+                {
+                    property.Comment = CombineComments(getter, setter);
+                }
+                type.Properties.Add(property);
+                getter.GenerationKind = GenerationKind.Internal;
+                if (setter != null)
+                    setter.GenerationKind = GenerationKind.Internal;
+            }
+
+            private static RawComment CombineComments(Declaration getter, Declaration setter)
+            {
+                var comment = new RawComment
+                {
+                    Kind = getter.Comment.Kind,
+                    BriefText = getter.Comment.BriefText,
+                    Text = getter.Comment.Text
+                };
+                if (getter.Comment.FullComment != null)
+                {
+                    comment.FullComment = new FullComment();
+                    comment.FullComment.Blocks.AddRange(getter.Comment.FullComment.Blocks);
+                    if (setter != null && setter.Comment != null)
+                    {
+                        comment.BriefText += Environment.NewLine + setter.Comment.BriefText;
+                        comment.Text += Environment.NewLine + setter.Comment.Text;
+                        comment.FullComment.Blocks.AddRange(setter.Comment.FullComment.Blocks);
+                    }
+                }
+                return comment;
             }
 
             private static string GetPropertyName(string name)
             {
-                if (GetFirstWord(name) == "get" && name != "get")
+                var firstWord = GetFirstWord(name);
+                if (Match(firstWord, new[] { "get" }) && name != firstWord)
                 {
                     if (char.IsLower(name[0]))
                     {
@@ -201,12 +233,13 @@ namespace CppSharp.Passes
 
             private void DistributeMethod(Method method)
             {
-                if (GetFirstWord(method.Name) == "set" && method.Name.Length > 3 &&
+                var firstWord = GetFirstWord(method.Name);
+                if (Match(firstWord, new[] { "set" }) && method.Name.Length > firstWord.Length &&
                     method.OriginalReturnType.Type.IsPrimitiveType(PrimitiveType.Void))
                 {
                     if (method.Parameters.Count == 1)
                         setters.Add(method);
-                    else
+                    else if (method.Parameters.Count > 1)
                         setMethods.Add(method);
                 }
                 else
@@ -224,21 +257,37 @@ namespace CppSharp.Passes
                     (method.OriginalReturnType.Type.IsPrimitiveType(PrimitiveType.Void)) ||
                     method.Parameters.Any(p => p.Kind != ParameterKind.IndirectReturnType))
                     return false;
-                var result = GetFirstWord(method.Name);
-                return (result.Length < method.Name.Length &&
-                        (result == "get" || result == "is" || result == "has")) ||
-                       (result != "to" && result != "new" && !verbs.Contains(result));
+                var firstWord = GetFirstWord(method.Name);
+                return (firstWord.Length < method.Name.Length &&
+                    Match(firstWord, new[] { "get", "is", "has" })) ||
+                    (!Match(firstWord, new[] { "to", "new" }) && !verbs.Contains(firstWord));
+            }
+
+            private static bool Match(string prefix, IEnumerable<string> prefixes)
+            {
+                return prefixes.Any(p => prefix == p || prefix == p + '_');
             }
 
             private static string GetFirstWord(string name)
             {
-                List<char> firstVerb = new List<char>
-                                    {
-                                        char.ToLowerInvariant(name[0])
-                                    };
-                firstVerb.AddRange(name.Skip(1).TakeWhile(
-                    c => char.IsLower(c) || !char.IsLetterOrDigit(c)));
-                return new string(firstVerb.ToArray());
+                var firstWord = new List<char> { char.ToLowerInvariant(name[0]) };
+                for (int i = 1; i < name.Length; i++)
+                {
+                    var c = name[i];
+                    if (char.IsLower(c))
+                    {
+                        firstWord.Add(c);
+                        continue;
+                    }
+                    if (c == '_')
+                    {
+                        firstWord.Add(c);
+                        break;
+                    }
+                    if (char.IsUpper(c))
+                        break;
+                }
+                return new string(firstWord.ToArray());
             }
         }
 
@@ -254,6 +303,11 @@ namespace CppSharp.Passes
             var assembly = Assembly.GetExecutingAssembly();
             using (var resourceStream = GetResourceStream(assembly))
             {
+                // For some reason, embedded resources are not working when compiling the
+                // Premake-generated VS project files with xbuild under OSX. Workaround this for now.
+                if (resourceStream == null)
+                    return;
+
                 using (var streamReader = new StreamReader(resourceStream))
                     while (!streamReader.EndOfStream)
                         verbs.Add(streamReader.ReadLine());
@@ -270,20 +324,20 @@ namespace CppSharp.Passes
 
         public GetterSetterToPropertyAdvancedPass()
         {
-            Options.VisitClassProperties = false;
-            Options.VisitFunctionParameters = false;
+            VisitOptions.VisitClassProperties = false;
+            VisitOptions.VisitFunctionParameters = false;
         }
 
         public override bool VisitClassDecl(Class @class)
         {
             if (VisitDeclarationContext(@class))
             {
-                if (Options.VisitClassBases)
+                if (VisitOptions.VisitClassBases)
                     foreach (var baseClass in @class.Bases)
                         if (baseClass.IsClass)
                             VisitClassDecl(baseClass.Class);
 
-                new PropertyGenerator(@class, Log).GenerateProperties();
+                new PropertyGenerator(@class, Diagnostics).GenerateProperties();
             }
             return false;
         }

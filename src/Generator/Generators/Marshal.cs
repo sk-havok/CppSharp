@@ -4,18 +4,17 @@ namespace CppSharp.Generators
 {
     public class MarshalContext
     {
-        public MarshalContext(Driver driver)
+        public MarshalContext(BindingContext context)
         {
-            Driver = driver;
+            Context = context;
             SupportBefore = new TextGenerator();
             Return = new TextGenerator();
             MarshalVarPrefix = string.Empty;
         }
 
-        public Driver Driver { get; private set; }
+        public BindingContext Context { get; private set; }
 
-        public MarshalPrinter MarshalToManaged;
-        public MarshalPrinter MarshalToNative;
+        public MarshalPrinter<MarshalContext> MarshalToNative;
 
         public TextGenerator SupportBefore { get; private set; }
         public TextGenerator Return { get; private set; }
@@ -33,11 +32,11 @@ namespace CppSharp.Generators
         public string MarshalVarPrefix { get; set; }
     }
 
-    public abstract class MarshalPrinter : AstVisitor
+    public abstract class MarshalPrinter<T> : AstVisitor where T : MarshalContext
     {
-        public MarshalContext Context { get; private set; }
+        public T Context { get; private set; }
 
-        protected MarshalPrinter(MarshalContext ctx)
+        protected MarshalPrinter(T ctx)
         {
             Context = ctx;
         }

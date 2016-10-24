@@ -64,8 +64,16 @@ namespace CppSharp.AST
         Call,
         Subscript,
         Conditional,
+        Coawait,
         Conversion,
         ExplicitConversion
+    }
+
+    public enum RefQualifier
+    {
+        None,
+        LValue,
+        RValue
     }
 
     /// <summary>
@@ -82,10 +90,8 @@ namespace CppSharp.AST
             : base(method)
         {
             Access = method.Access;
-            AccessDecl = method.AccessDecl;
             IsVirtual = method.IsVirtual;
             IsConst = method.IsConst;
-            IsImplicit = method.IsImplicit;
             IsOverride = method.IsOverride;
             IsProxy = method.IsProxy;
             IsStatic = method.IsStatic;
@@ -95,6 +101,7 @@ namespace CppSharp.AST
             IsMoveConstructor = method.IsMoveConstructor;
             Conversion = method.Conversion;
             SynthKind = method.SynthKind;
+            AdjustedOffset = method.AdjustedOffset;
         }
 
         public Method(Function function)
@@ -103,15 +110,14 @@ namespace CppSharp.AST
             
         }
 
-        public AccessSpecifierDecl AccessDecl { get; set; }
-
         public bool IsVirtual { get; set; }
         public bool IsStatic { get; set; }
         public bool IsConst { get; set; }
-        public bool IsImplicit { get; set; }
         public bool IsExplicit { get; set; }
         public bool IsOverride { get; set; }
         public bool IsProxy { get; set; }
+
+        public RefQualifier RefQualifier { get; set; }
 
         private CXXMethodKind kind;
         public CXXMethodKind Kind
@@ -147,6 +153,8 @@ namespace CppSharp.AST
         public QualifiedType ConversionType { get; set; }
 
         public Class ExplicitInterfaceImpl { get; set; }
+
+        public int AdjustedOffset { get; set; }
 
         public override T Visit<T>(IDeclVisitor<T> visitor)
         {

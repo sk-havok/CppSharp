@@ -1,12 +1,12 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using CppSharp.AST;
 using CppSharp.AST.Extensions;
-using CppSharp.Generators.CLI;
+using CppSharp.Generators;
 using CppSharp.Generators.CSharp;
 using CppSharp.Types;
-using Type = CppSharp.AST.Type;
 
 namespace CppSharp.Passes
 {
@@ -15,181 +15,327 @@ namespace CppSharp.Passes
         private static readonly Regex regexFunctionParams = new Regex(@"\(?(.+)\)?", RegexOptions.Compiled);
         private static readonly Regex regexDoubleColon = new Regex(@"\w+::", RegexOptions.Compiled);
         private static readonly Regex regexName = new Regex(@"(\w+)", RegexOptions.Compiled);
-        private static readonly Regex regexCtor = new Regex(@"^(\w+)\s*\(\w*\)$", RegexOptions.Compiled);
+
+        private readonly Dictionary<DeclarationContext, List<Function>> overloads =
+            new Dictionary<DeclarationContext, List<Function>>();
+
+        public HandleDefaultParamValuesPass()
+        {
+            VisitOptions.VisitFunctionParameters = false;
+        }
+
+        public override bool VisitTranslationUnit(TranslationUnit unit)
+        {
+            if (!unit.IsGenerated)
+                return false;
+            var result = base.VisitTranslationUnit(unit);
+            foreach (var overload in overloads)
+                overload.Key.Functions.AddRange(overload.Value);
+            overloads.Clear();
+            return result;
+        }
 
         public override bool VisitFunctionDecl(Function function)
         {
-            bool result = base.VisitFunctionDecl(function);
+            if (!base.VisitFunctionDecl(function) || function.Ignore)
+                return false;
 
+            Generator.CurrentOutputNamespace = function.TranslationUnit.Module.OutputNamespace;
             var overloadIndices = new List<int>(function.Parameters.Count);
             foreach (var parameter in function.Parameters.Where(p => p.DefaultArgument != null))
             {
-                Type desugared = parameter.Type.Desugar();
-
-                if (CheckForDefaultPointer(desugared, parameter))
-                    continue;
-
-                CheckFloatSyntax(desugared, parameter);
-
-                bool? defaultConstruct = CheckForDefaultConstruct(desugared, parameter.DefaultArgument);
-                if (defaultConstruct == null ||
-                    (!Driver.Options.MarshalCharAsManagedChar &&
-                     parameter.Type.Desugar().IsPrimitiveType(PrimitiveType.UChar)))
-                {
+                var result = parameter.DefaultArgument.String;
+                if (PrintExpression(parameter.Type, parameter.DefaultArgument, ref result) == null)
                     overloadIndices.Add(function.Parameters.IndexOf(parameter));
-                    continue;
+                if (string.IsNullOrEmpty(result))
+                {
+                    parameter.DefaultArgument = null;
+                    foreach (var p in function.Parameters.TakeWhile(p => p != parameter))
+                        p.DefaultArgument = null;
                 }
-                if (defaultConstruct == true)
-                    continue;
-
-                if (CheckForEnumValue(parameter.DefaultArgument, desugared))
-                    continue;
-
-                CheckForDefaultEmptyChar(parameter, desugared);
+                else
+                    parameter.DefaultArgument.String = result;
             }
 
             GenerateOverloads(function, overloadIndices);
 
-            return result;
+            return true;
         }
 
-        private void CheckFloatSyntax(Type desugared, Parameter parameter)
+        private bool? PrintExpression(Type type, Expression expression, ref string result)
         {
-            var builtin = desugared as BuiltinType;
-            if (builtin != null && builtin.Type == AST.PrimitiveType.Float && parameter.DefaultArgument.String.EndsWith(".F"))
+            var desugared = type.Desugar();
+
+            // constants are obtained through dynamic calls at present so they are not compile-time values in target languages
+            if (expression.Declaration is Variable ||
+                (!Options.MarshalCharAsManagedChar &&
+                 desugared.IsPrimitiveType(PrimitiveType.UChar)) ||
+                type.IsPrimitiveTypeConvertibleToRef())
+                return null;
+
+            if (CheckForDefaultPointer(desugared, ref result))
+                return true;
+
+            if (expression.Class == StatementClass.Call)
             {
-                parameter.DefaultArgument.String = parameter.DefaultArgument.String.Replace(".F", ".0F");
+                if (expression.Declaration.Ignore)
+                {
+                    result = null;
+                    return false;
+                }
+                return null;
             }
+
+            var defaultConstruct = CheckForDefaultConstruct(desugared, expression, ref result);
+            if (defaultConstruct != false)
+                return defaultConstruct;
+
+            return CheckForSimpleExpressions(expression, ref result, desugared);
         }
 
-        private static bool CheckForDefaultPointer(Type desugared, Parameter parameter)
+        private bool CheckForSimpleExpressions(Expression expression, ref string result, Type desugared)
         {
-            if (desugared.IsPointer())
+            return CheckFloatSyntax(desugared, expression, ref result) ||
+                CheckForBinaryOperator(desugared, expression, ref result) ||
+                CheckForEnumValue(desugared, expression, ref result) ||
+                CheckForDefaultChar(desugared, ref result);
+        }
+
+        private bool CheckForDefaultPointer(Type desugared, ref string result)
+        {
+            if (!desugared.IsPointer())
+                return false;
+
+            // IntPtr.Zero is not a constant
+            if (desugared.IsPointerToPrimitiveType(PrimitiveType.Void))
             {
-                // IntPtr.Zero is not a constant
-                parameter.DefaultArgument.String = desugared.IsPointerToPrimitiveType(PrimitiveType.Void) ?
-                    "new global::System.IntPtr()" : "null";
+                result = "new global::System.IntPtr()";
                 return true;
             }
-            return false;
+
+            if (desugared.IsPrimitiveTypeConvertibleToRef())
+                return false;
+
+            Class @class;
+            if (desugared.GetFinalPointee().TryGetClass(out @class) && @class.IsValueType)
+            {
+                result = string.Format("new {0}()",
+                    new CSharpTypePrinter(Context).VisitClassDecl(@class));
+                return true;
+            }
+
+            result = "null";
+            return true;
         }
 
-        private bool? CheckForDefaultConstruct(Type desugared, Expression arg)
+        private bool? CheckForDefaultConstruct(Type desugared, Expression expression,
+            ref string result)
         {
-            // Unwrapping the underlying type behind a possible pointer/reference
-            Type type;
-            desugared.IsPointerTo(out type);
-            type = type ?? desugared;
+            var type = desugared.GetFinalPointee() ?? desugared;
 
             Class decl;
             if (!type.TryGetClass(out decl))
                 return false;
 
-            var ctor = arg.Declaration as Method;
+            var ctor = expression as CXXConstructExpr;
 
             TypeMap typeMap;
-            if (Driver.TypeDatabase.FindTypeMap(decl, type, out typeMap))
+
+            var typePrinter = new CSharpTypePrinter(Context);
+            typePrinter.PushMarshalKind(CSharpMarshalKind.DefaultExpression);
+            var typePrinterResult = type.Visit(typePrinter).Type;
+            if (TypeDatabase.FindTypeMap(decl, type, out typeMap))
             {
-                Type typeInSignature;
-                string mappedTo;
-                if (Driver.Options.IsCSharpGenerator)
-                {
-                    var typePrinterContext = new CSharpTypePrinterContext
-                    {
-                        CSharpKind = CSharpTypePrinterContextKind.Managed,
-                        Type = type
-                    };
-                    typeInSignature = typeMap.CSharpSignatureType(typePrinterContext).SkipPointerRefs();
-                    mappedTo = typeMap.CSharpSignature(typePrinterContext);
-                }
-                else
-                {
-                    var typePrinterContext = new CLITypePrinterContext
-                    {
-                        Type = type
-                    };
-                    typeInSignature = typeMap.CLISignatureType(typePrinterContext).SkipPointerRefs();
-                    mappedTo = typeMap.CLISignature(typePrinterContext);
-                }
+                var typeInSignature = typeMap.CSharpSignatureType(
+                    typePrinter.TypePrinterContext).SkipPointerRefs().Desugar();
                 Enumeration @enum;
                 if (typeInSignature.TryGetEnum(out @enum))
                 {
+                    if (ctor != null &&
+                        (ctor.Arguments.Count == 0 ||
+                         HasSingleZeroArgExpression((Function) ctor.Declaration)))
+                    {
+                        result = "0";
+                        return true;
+                    }
                     return false;
                 }
 
-                if (ctor == null || !ctor.IsConstructor)
-                    return false;
-                if (mappedTo == "string" && ctor.Parameters.Count == 0)
+                if (ctor != null && typePrinterResult == "string" && ctor.Arguments.Count == 0)
                 {
-                    arg.String = "\"\"";
+                    result = "\"\"";
                     return true;
                 }
             }
 
-            if (regexCtor.IsMatch(arg.String))
+            if (ctor == null)
             {
-                arg.String = string.Format("new {0}", arg.String);
-                if (ctor != null && ctor.Parameters.Count > 0 && ctor.Parameters[0].Type.IsAddress())
+                CheckForSimpleExpressions(expression, ref result, desugared);
+                return decl.IsValueType ? (bool?) false : null;
+            }
+
+            var method = (Method) expression.Declaration;
+            var expressionSupported = decl.IsValueType && method.Parameters.Count == 0;
+
+            if (expression.String.Contains('('))
+            {
+                var argsBuilder = new StringBuilder("new ");
+                argsBuilder.Append(typePrinterResult);
+                argsBuilder.Append('(');
+                for (var i = 0; i < ctor.Arguments.Count; i++)
                 {
-                    arg.String = arg.String.Replace("(0)", "()");
-                    return decl.IsValueType ? true : (bool?) null;
+                    var argument = ctor.Arguments[i];
+                    var argResult = argument.String;
+                    expressionSupported &= PrintExpression(method.Parameters[i].Type.Desugar(),
+                        argument, ref argResult) ?? false;
+                    argsBuilder.Append(argResult);
+                    if (i < ctor.Arguments.Count - 1)
+                        argsBuilder.Append(", ");
                 }
+                argsBuilder.Append(')');
+                result = argsBuilder.ToString();
             }
             else
             {
-                if (ctor != null && ctor.Parameters.Count > 0)
+                if (method.Parameters.Count > 0)
                 {
-                    var finalPointee = ctor.Parameters[0].Type.SkipPointerRefs().Desugar();
+                    var paramType = method.Parameters[0].Type.SkipPointerRefs().Desugar();
                     Enumeration @enum;
-                    if (finalPointee.TryGetEnum(out @enum))
-                        TranslateEnumExpression(arg, finalPointee, arg.String);
+                    if (paramType.TryGetEnum(out @enum))
+                        result = TranslateEnumExpression(method, paramType, expression.String);
                 }
             }
-
-            return decl.IsValueType ? true : (bool?) null;
+            return expressionSupported ? true : (bool?) null;
         }
 
-        private static bool CheckForEnumValue(Expression arg, Type desugared)
+        private static bool CheckFloatSyntax(Type desugared, Statement statement, ref string result)
         {
-            var enumItem = arg.Declaration as Enumeration.Item;
-            if (enumItem != null)
+            var builtin = desugared as BuiltinType;
+            if (builtin != null)
             {
-                arg.String = string.Format("{0}{1}{2}.{3}",
-                    desugared.IsPrimitiveType() ? "(int) " : string.Empty,
-                    string.IsNullOrEmpty(enumItem.Namespace.Namespace.Name)
-                        ? string.Empty
-                        : enumItem.Namespace.Namespace.Name + ".", enumItem.Namespace.Name, enumItem.Name);
-                return true;
-            }
-
-            var call = arg.Declaration as Function;
-            if ((call != null || arg.Class == StatementClass.BinaryOperator) && arg.String != "0")
-            {
-                string @params = regexFunctionParams.Match(arg.String).Groups[1].Value;
-                TranslateEnumExpression(arg, desugared, @params);
-                return true;
+                switch (builtin.Type)
+                {
+                    case PrimitiveType.Float:
+                        if (statement.String.EndsWith(".F", System.StringComparison.Ordinal))
+                        {
+                            result = statement.String.Replace(".F", ".0F");
+                            return true;
+                        }
+                        break;
+                    case PrimitiveType.Double:
+                        if (statement.String.EndsWith(".", System.StringComparison.Ordinal))
+                        {
+                            result = statement.String + '0';
+                            return true;
+                        }
+                        break;
+                }
             }
             return false;
         }
 
-        private static void TranslateEnumExpression(Expression arg, Type desugared, string @params)
+        private bool CheckForBinaryOperator(Type desugared, Expression expression,
+            ref string result)
         {
-            if (@params.Contains("::"))
-                arg.String = regexDoubleColon.Replace(@params, desugared + ".");
-            else
-                arg.String = regexName.Replace(@params, desugared + ".$1");
+            if (expression.Class != StatementClass.BinaryOperator)
+                return false;
+
+            var binaryOperator = (BinaryOperator) expression;
+
+            var lhsResult = binaryOperator.LHS.String;
+            CheckForEnumValue(desugared, binaryOperator.LHS, ref lhsResult);
+
+            var rhsResult = binaryOperator.RHS.String;
+            CheckForEnumValue(desugared, binaryOperator.RHS, ref rhsResult);
+
+            result = string.Format("{0} {1} {2}", lhsResult,
+                binaryOperator.OpcodeStr, rhsResult);
+            return true;
         }
 
-        private void CheckForDefaultEmptyChar(Parameter parameter, Type desugared)
+        private bool CheckForEnumValue(Type desugared, Statement statement,
+            ref string result)
         {
-            if (parameter.DefaultArgument.String == "0" && Driver.Options.MarshalCharAsManagedChar &&
-                desugared.IsPrimitiveType(PrimitiveType.Char))
+            var enumItem = statement.Declaration as Enumeration.Item;
+            if (enumItem != null)
             {
-                parameter.DefaultArgument.String = "'\\0'";
+                if (desugared.IsPrimitiveType())
+                {
+                    statement.Declaration = null;
+                    result = string.Format("(int) {0}.{1}",
+                        new CSharpTypePrinter(Context).VisitEnumDecl(
+                            (Enumeration) enumItem.Namespace), enumItem.Name);
+                }
+                else
+                {
+                    result = string.Format("{0}.{1}",
+                        new CSharpTypePrinter(Context).VisitEnumDecl(
+                            (Enumeration) enumItem.Namespace), enumItem.Name);
+                }
+                return true;
             }
+
+            var call = statement.Declaration as Function;
+            if (call != null && statement.String != "0")
+            {
+                var @params = regexFunctionParams.Match(statement.String).Groups[1].Value;
+                result = TranslateEnumExpression(call, desugared, @params);
+                return true;
+            }
+
+            return false;
         }
 
-        private static void GenerateOverloads(Function function, List<int> overloadIndices)
+        private string TranslateEnumExpression(Function function,
+            Type desugared, string @params)
+        {
+            TypeMap typeMap;
+            if ((function.Parameters.Count == 0 ||
+                 HasSingleZeroArgExpression(function)) &&
+                TypeDatabase.FindTypeMap(desugared, out typeMap))
+            {
+                var typeInSignature = typeMap.CSharpSignatureType(new CSharpTypePrinterContext
+                {
+                    MarshalKind = CSharpMarshalKind.DefaultExpression,
+                    Type = desugared
+                }).SkipPointerRefs().Desugar();
+                Enumeration @enum;
+                if (typeInSignature.TryGetEnum(out @enum))
+                    return "0";
+            }
+
+            if (@params.Contains("::"))
+                return regexDoubleColon.Replace(@params, desugared + ".");
+
+            return regexName.Replace(@params, desugared + ".$1");
+        }
+
+        private static bool HasSingleZeroArgExpression(Function function)
+        {
+            if (function.Parameters.Count != 1)
+                return false;
+
+            var defaultArgument = function.Parameters[0].DefaultArgument;
+            return defaultArgument is BuiltinTypeExpression &&
+                ((BuiltinTypeExpression) defaultArgument).Value == 0;
+        }
+
+        private bool CheckForDefaultChar(Type desugared, ref string result)
+        {
+            int value;
+            if (int.TryParse(result, out value) &&
+                ((Options.MarshalCharAsManagedChar &&
+                 desugared.IsPrimitiveType(PrimitiveType.Char)) ||
+                 desugared.IsPrimitiveType(PrimitiveType.WideChar)))
+            {
+                result = value == 0 ? "'\\0'" : ("(char) " + result);
+                return true;
+            }
+
+            return false;
+        }
+
+        private void GenerateOverloads(Function function, List<int> overloadIndices)
         {
             foreach (var overloadIndex in overloadIndices)
             {
@@ -197,9 +343,10 @@ namespace CppSharp.Passes
                 Function overload = method != null ? new Method(method) : new Function(function);
                 overload.OriginalFunction = function;
                 overload.SynthKind = FunctionSynthKind.DefaultValueOverload;
-                overload.Parameters[overloadIndex].GenerationKind = GenerationKind.None;
+                for (int i = overloadIndex; i < function.Parameters.Count; ++i)
+                    overload.Parameters[i].GenerationKind = GenerationKind.None;
 
-                var indices = overloadIndices.Where(i => i != overloadIndex).ToList();
+                var indices = overloadIndices.Where(i => i < overloadIndex).ToList();
                 if (indices.Any())
                     for (int i = 0; i <= indices.Last(); i++)
                         if (i != overloadIndex)
@@ -208,7 +355,14 @@ namespace CppSharp.Passes
                 if (method != null)
                     ((Class) function.Namespace).Methods.Add((Method) overload);
                 else
-                    function.Namespace.Functions.Add(overload);
+                {
+                    List<Function> functions;
+                    if (overloads.ContainsKey(function.Namespace))
+                        functions = overloads[function.Namespace];
+                    else
+                        overloads.Add(function.Namespace, functions = new List<Function>());
+                    functions.Add(overload);
+                }
 
                 for (int i = 0; i <= overloadIndex; i++)
                     function.Parameters[i].DefaultArgument = null;

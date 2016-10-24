@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -24,6 +25,12 @@ namespace CppSharp.AST
         /// Contains the macros present in the unit.
         public List<MacroDefinition> Macros;
 
+        public Module Module
+        {
+            get { return (module != null) ? (Module) module.Target : null; }
+            set { module = new WeakReference(value); }
+        }
+
         public bool IsSystemHeader { get; set; }
 
         public bool IsValid { get { return FilePath != "<invalid>"; } }
@@ -31,28 +38,39 @@ namespace CppSharp.AST
         /// Contains the path to the file.
         public string FilePath;
 
+        private string fileName;
+        private string fileNameWithoutExtension;
+
         /// Contains the name of the file.
         public string FileName
         {
-            get { return Path.GetFileName(FilePath); }
+            get { return fileName ?? (fileName = Path.GetFileName(FilePath)); }
         }
 
         /// Contains the name of the module.
         public string FileNameWithoutExtension
         {
-            get { return Path.GetFileNameWithoutExtension(FileName); }
+            get
+            {
+                return fileNameWithoutExtension ??
+                    (fileNameWithoutExtension = Path.GetFileNameWithoutExtension(FileName));
+            }
         }
 
         /// Contains the include path.
         public string IncludePath;
 
+        private string fileRelativeDirectory;
+        private string fileRelativePath;
+
         public string FileRelativeDirectory
         {
             get
             {
+                if (fileRelativeDirectory != null) return fileRelativeDirectory;
                 var path = IncludePath.Replace('\\', '/');
                 var index = path.LastIndexOf('/');
-                return path.Substring(0, index);
+                return fileRelativeDirectory = path.Substring(0, index);
             }
         }
 
@@ -60,8 +78,11 @@ namespace CppSharp.AST
         {
             get
             {
-                return Path.Combine(FileRelativeDirectory, FileName);
+                return fileRelativePath ??
+                    (fileRelativePath = Path.Combine(FileRelativeDirectory, FileName));
             }
         }
+
+        private WeakReference module;
     }
 }

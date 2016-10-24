@@ -4,32 +4,46 @@ namespace CppSharp.Passes
 {
     public class FindSymbolsPass : TranslationUnitPass
     {
+        public FindSymbolsPass()
+        {
+            VisitOptions.VisitClassBases = false;
+            VisitOptions.VisitFunctionParameters = false;
+            VisitOptions.VisitFunctionReturnType = false;
+            VisitOptions.VisitNamespaceEnums = false;
+            VisitOptions.VisitNamespaceTemplates = false;
+            VisitOptions.VisitNamespaceTypedefs = false;
+            VisitOptions.VisitTemplateArguments = false;
+            VisitOptions.VisitClassFields = false;
+        }
+
         public override bool VisitDeclaration(Declaration decl)
         {
-            var options = Driver.Options;
-            if (!options.CheckSymbols || options.IsCLIGenerator)
+            if (!base.VisitDeclaration(decl))
+                return false;
+
+            if (!Options.CheckSymbols || Options.IsCLIGenerator)
                 return false;
 
             var mangledDecl = decl as IMangledDecl;
             var method = decl as Method;
-            if (mangledDecl != null && !(method != null && (method.IsPure || method.IsSynthetized)) &&
+            if (decl.IsGenerated && mangledDecl != null &&
+                !(method != null && (method.IsPure || method.IsSynthetized)) &&
                 !VisitMangledDeclaration(mangledDecl))
             {
                 decl.ExplicitlyIgnore();
                 return false;
             }
 
-            return base.VisitDeclaration(decl);
+            return true;
         }
 
         private bool VisitMangledDeclaration(IMangledDecl mangledDecl)
         {
             var symbol = mangledDecl.Mangled;
 
-            if (!Driver.Symbols.FindSymbol(ref symbol))
+            if (!Context.Symbols.FindSymbol(ref symbol))
             {
-                Driver.Diagnostics.EmitWarning(DiagnosticId.SymbolNotFound,
-                    "Symbol not found: {0}", symbol);
+                Diagnostics.Warning("Symbol not found: {0}", symbol);
                 return false;
             }
 

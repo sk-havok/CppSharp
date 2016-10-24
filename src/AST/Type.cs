@@ -1,25 +1,43 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using CppSharp.AST.Extensions;
 
 namespace CppSharp.AST
 {
     /// <summary>
     /// Represents a C++ type.
     /// </summary>
-    public abstract class Type
+    public abstract class Type : ICloneable
     {
         public static Func<Type, string> TypePrinterDelegate;
 
         public bool IsDependent { get; set; }
 
+        protected Type()
+        {
+        }
+
+        protected Type(Type type)
+        {
+            IsDependent = type.IsDependent;
+        }
+
         public abstract T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals
             = new TypeQualifiers());
+
+        public string ToNativeString()
+        {
+            var cppTypePrinter = new CppTypePrinter { PrintScopeKind = CppTypePrintScopeKind.Qualified };
+            return Visit(cppTypePrinter);
+        }
 
         public override string ToString()
         {
             return TypePrinterDelegate(this);
         }
+
+        public abstract object Clone();
     }
 
     /// <summary>
@@ -101,11 +119,22 @@ namespace CppSharp.AST
             Declaration = decl;
         }
 
+        public TagType(TagType type)
+            : base(type)
+        {
+            Declaration = type.Declaration;
+        }
+
         public Declaration Declaration;
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitTagType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new TagType(this);
         }
 
         public override bool Equals(object obj)
@@ -144,14 +173,35 @@ namespace CppSharp.AST
         // In case of a constant size array.
         public long Size;
 
+        // Size of the element type of the array.
+        public long ElementSize;
+
+        public ArrayType()
+        {
+        }
+
+        public ArrayType(ArrayType type)
+            : base(type)
+        {
+            QualifiedType = new QualifiedType((Type) type.QualifiedType.Type.Clone(),
+                type.QualifiedType.Qualifiers);
+            SizeType = type.SizeType;
+            Size = type.Size;
+        }
+
         public Type Type
         {
             get { return QualifiedType.Type; }
         }
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitArrayType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new ArrayType(this);
         }
 
         public override bool Equals(object obj)
@@ -190,9 +240,22 @@ namespace CppSharp.AST
             Parameters = new List<Parameter>();
         }
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public FunctionType(FunctionType type)
+            : base(type)
+        {
+            ReturnType = new QualifiedType((Type) type.ReturnType.Type.Clone(), type.ReturnType.Qualifiers);
+            Parameters = type.Parameters.Select(p => new Parameter(p)).ToList();
+            CallingConvention = type.CallingConvention;
+        }
+
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitFunctionType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new FunctionType(this);
         }
 
         public override bool Equals(object obj)
@@ -233,6 +296,18 @@ namespace CppSharp.AST
             RVReference
         }
 
+        public PointerType()
+        {
+        }
+
+        public PointerType(PointerType type)
+            : base(type)
+        {
+            QualifiedPointee = new QualifiedType((Type) type.QualifiedPointee.Type.Clone(),
+                type.QualifiedPointee.Qualifiers);
+            Modifier = type.Modifier;
+        }
+
         public bool IsReference
         {
             get
@@ -247,9 +322,14 @@ namespace CppSharp.AST
 
         public TypeModifier Modifier;
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitPointerType(this, QualifiedPointee.Qualifiers);
+        }
+
+        public override object Clone()
+        {
+            return new PointerType(this);
         }
 
         public override bool Equals(object obj)
@@ -274,14 +354,30 @@ namespace CppSharp.AST
     {
         public QualifiedType QualifiedPointee;
 
+        public MemberPointerType()
+        {
+        }
+
+        public MemberPointerType(MemberPointerType type)
+            : base(type)
+        {
+            QualifiedPointee = new QualifiedType((Type) type.QualifiedPointee.Type.Clone(),
+                type.QualifiedPointee.Qualifiers);
+        }
+
         public Type Pointee
         {
             get { return QualifiedPointee.Type; }
         }
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitMemberPointerType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new MemberPointerType(this);
         }
 
         public override bool Equals(object obj)
@@ -303,20 +399,37 @@ namespace CppSharp.AST
     /// </summary>
     public class TypedefType : Type
     {
-        public TypedefDecl Declaration;
+        public TypedefNameDecl Declaration { get; set; }
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public TypedefType()
+        {
+        }
+
+        public TypedefType(TypedefNameDecl decl)
+        {
+            Declaration = decl;
+        }
+
+        public TypedefType(TypedefType type)
+            : base(type)
+        {
+            Declaration = type.Declaration;
+        }
+
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitTypedefType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new TypedefType(this);
         }
 
         public override bool Equals(object obj)
         {
             var typedef = obj as TypedefType;
-            if (typedef == null) return false;
-
-            var t = Declaration.Equals(typedef.Declaration);
-            return t;
+            return Declaration.Type.Equals(typedef == null ? obj : typedef.Declaration.Type);
         }
 
         public override int GetHashCode()
@@ -341,9 +454,30 @@ namespace CppSharp.AST
 
         public QualifiedType Equivalent;
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public AttributedType()
+        {
+        }
+
+        public AttributedType(AttributedType type)
+            : base(type)
+        {
+            Modified = new QualifiedType((Type) type.Modified.Type.Clone(), type.Modified.Qualifiers);
+            Equivalent = new QualifiedType((Type) type.Equivalent.Type.Clone(), type.Equivalent.Qualifiers);
+        }
+
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitAttributedType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new AttributedType
+            {
+                IsDependent = IsDependent,
+                Modified = new QualifiedType((Type) Modified.Type.Clone(), Modified.Qualifiers),
+                Equivalent = new QualifiedType((Type) Equivalent.Type.Clone(), Equivalent.Qualifiers)
+            };
         }
 
         public override bool Equals(object obj)
@@ -370,9 +504,26 @@ namespace CppSharp.AST
         public QualifiedType Original;
         public QualifiedType Pointee;
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public DecayedType()
+        {
+        }
+
+        public DecayedType(DecayedType type)
+            : base(type)
+        {
+            Decayed = new QualifiedType((Type) type.Decayed.Type.Clone(), type.Decayed.Qualifiers);
+            Original = new QualifiedType((Type) type.Original.Type.Clone(), type.Original.Qualifiers);
+            Pointee = new QualifiedType((Type) type.Pointee.Type.Clone(), type.Pointee.Qualifiers);
+        }
+
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitDecayedType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new DecayedType(this);
         }
 
         public override bool Equals(object obj)
@@ -451,13 +602,30 @@ namespace CppSharp.AST
             case ArgumentKind.Expression:
                 return true;
             default:
-                throw new Exception("Unknowed TemplateArgument Kind");
+                throw new Exception("Unknown TemplateArgument Kind");
             }
         }
 
         public override int GetHashCode()
         {
             return base.GetHashCode();
+        }
+
+        public override string ToString()
+        {
+            switch (Kind)
+            {
+                case ArgumentKind.Type:
+                    return Type.ToString();
+                case ArgumentKind.Declaration:
+                    return Declaration.ToString();
+                case ArgumentKind.Integral:
+                    return Integral.ToString();
+                case ArgumentKind.Expression:
+                    return string.Empty;
+                default:
+                    throw new Exception("Unknown TemplateArgument Kind");
+            }
         }
     }
 
@@ -471,11 +639,48 @@ namespace CppSharp.AST
             Arguments = new List<TemplateArgument>();
         }
 
+        public TemplateSpecializationType(TemplateSpecializationType type)
+            : base(type)
+        {
+            Arguments = type.Arguments.Select(
+                t => new TemplateArgument
+                {
+                    Declaration = t.Declaration,
+                    Integral = t.Integral,
+                    Kind = t.Kind,
+                    Type = new QualifiedType((Type) t.Type.Type.Clone(), t.Type.Qualifiers)
+                }).ToList();
+            Template = type.Template;
+            Desugared = new QualifiedType((Type) type.Desugared.Type.Clone(), type.Desugared.Qualifiers);
+        }
+
         public List<TemplateArgument> Arguments;
 
         public Template Template;
 
-        public Type Desugared;
+        public QualifiedType Desugared;
+
+        public ClassTemplateSpecialization GetClassTemplateSpecialization()
+        {
+            return GetDeclaration() as ClassTemplateSpecialization;
+        }
+
+        private Declaration GetDeclaration()
+        {
+            var finalType = Desugared.Type.GetFinalPointee() ?? Desugared.Type;
+
+            var tagType = finalType as TagType;
+            if (tagType != null)
+                return tagType.Declaration;
+
+            var injectedClassNameType = finalType as InjectedClassNameType;
+            if (injectedClassNameType == null)
+                return null;
+
+            var injectedSpecializationType = (TemplateSpecializationType)
+                injectedClassNameType.InjectedSpecializationType.Type;
+            return injectedSpecializationType.GetDeclaration();
+        }
 
         public override T Visit<T>(ITypeVisitor<T> visitor,
                                    TypeQualifiers quals = new TypeQualifiers())
@@ -483,13 +688,73 @@ namespace CppSharp.AST
             return visitor.VisitTemplateSpecializationType(this, quals);
         }
 
+        public override object Clone()
+        {
+            return new TemplateSpecializationType(this);
+        }
+
         public override bool Equals(object obj)
         {
             var type = obj as TemplateSpecializationType;
             if (type == null) return false;
 
-            return Arguments.SequenceEqual(type.Arguments)
-                && Template.Name == type.Template.Name;
+            return Arguments.SequenceEqual(type.Arguments) &&
+                ((Template != null && Template.Name == type.Template.Name) ||
+                Desugared == type.Desugared);
+        }
+
+        public override int GetHashCode()
+        {
+            return base.GetHashCode();
+        }
+    }
+
+    /// <summary>
+    /// Represents a C++ dependent template specialization type.
+    /// </summary>
+    public class DependentTemplateSpecializationType : Type
+    {
+        public DependentTemplateSpecializationType()
+        {
+            Arguments = new List<TemplateArgument>();
+        }
+
+        public DependentTemplateSpecializationType(DependentTemplateSpecializationType type)
+            : base(type)
+        {
+            Arguments = type.Arguments.Select(
+                t => new TemplateArgument
+                {
+                    Declaration = t.Declaration,
+                    Integral = t.Integral,
+                    Kind = t.Kind,
+                    Type = new QualifiedType((Type) t.Type.Type.Clone(), t.Type.Qualifiers)
+                }).ToList();
+            Desugared = new QualifiedType((Type) type.Desugared.Type.Clone(), type.Desugared.Qualifiers);
+        }
+
+        public List<TemplateArgument> Arguments;
+
+        public QualifiedType Desugared;
+
+        public override T Visit<T>(ITypeVisitor<T> visitor,
+                                   TypeQualifiers quals = new TypeQualifiers())
+        {
+            return visitor.VisitDependentTemplateSpecializationType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new DependentTemplateSpecializationType(this);
+        }
+
+        public override bool Equals(object obj)
+        {
+            var type = obj as TemplateSpecializationType;
+            if (type == null) return false;
+
+            return Arguments.SequenceEqual(type.Arguments) &&
+                Desugared == type.Desugared;
         }
 
         public override int GetHashCode()
@@ -503,15 +768,37 @@ namespace CppSharp.AST
     /// </summary>
     public class TemplateParameterType : Type
     {
-        public TemplateParameter Parameter;
+        public TypeTemplateParameter Parameter;
         public uint Depth;
         public uint Index;
         public bool IsParameterPack;
+
+        public TemplateParameterType()
+        {
+        }
+
+        public TemplateParameterType(TemplateParameterType type)
+            : base(type)
+        {
+            Parameter = new TypeTemplateParameter
+            {
+                Constraint = type.Parameter.Constraint,
+                Name = type.Parameter.Name
+            };
+            Depth = type.Depth;
+            Index = type.Index;
+            IsParameterPack = type.IsParameterPack;
+        }
 
         public override T Visit<T>(ITypeVisitor<T> visitor,
                                    TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitTemplateParameterType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new TemplateParameterType(this);
         }
 
         public override bool Equals(object obj)
@@ -538,10 +825,25 @@ namespace CppSharp.AST
     {
         public QualifiedType Replacement;
 
+        public TemplateParameterSubstitutionType()
+        {
+        }
+
+        public TemplateParameterSubstitutionType(TemplateParameterSubstitutionType type)
+            : base(type)
+        {
+            Replacement = new QualifiedType((Type) type.Replacement.Type.Clone(), type.Replacement.Qualifiers);
+        }
+
         public override T Visit<T>(ITypeVisitor<T> visitor,
                                    TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitTemplateParameterSubstitutionType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new TemplateParameterSubstitutionType(this);
         }
 
         public override bool Equals(object obj)
@@ -567,10 +869,28 @@ namespace CppSharp.AST
         public TemplateSpecializationType TemplateSpecialization;
         public Class Class;
 
+        public InjectedClassNameType()
+        {
+        }
+
+        public InjectedClassNameType(InjectedClassNameType type)
+            : base(type)
+        {
+            TemplateSpecialization = (TemplateSpecializationType) type.TemplateSpecialization.Clone();
+            Class = type.Class;
+        }
+
+        public QualifiedType InjectedSpecializationType { get; set; }
+
         public override T Visit<T>(ITypeVisitor<T> visitor,
                                    TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitInjectedClassNameType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new InjectedClassNameType(this);
         }
 
         public override bool Equals(object obj)
@@ -595,10 +915,26 @@ namespace CppSharp.AST
     /// </summary>
     public class DependentNameType : Type
     {
+        public DependentNameType()
+        {
+        }
+
+        public DependentNameType(DependentNameType type)
+            : base(type)
+        {
+        }
+
+        public QualifiedType Desugared { get; set; }
+
         public override T Visit<T>(ITypeVisitor<T> visitor,
                                    TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitDependentNameType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new DependentNameType(this);
         }
     }
 
@@ -612,12 +948,27 @@ namespace CppSharp.AST
             Type = type;
         }
 
+        public CILType()
+        {
+        }
+
+        public CILType(CILType type)
+            : base(type)
+        {
+            Type = type.Type;
+        }
+
         public System.Type Type;
 
         public override T Visit<T>(ITypeVisitor<T> visitor,
                                    TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitCILType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new CILType(this);
         }
 
         public override bool Equals(object obj)
@@ -636,9 +987,99 @@ namespace CppSharp.AST
 
     public class PackExpansionType : Type
     {
+        public PackExpansionType()
+        {
+        }
+
+        public PackExpansionType(PackExpansionType type)
+            : base(type)
+        {
+        }
+
         public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitPackExpansionType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new PackExpansionType(this);
+        }
+    }
+
+    public class UnaryTransformType : Type
+    {
+        public UnaryTransformType()
+        {
+        }
+
+        public UnaryTransformType(UnaryTransformType type)
+            : base(type)
+        {
+            Desugared = type.Desugared;
+            BaseType = type.BaseType;
+        }
+
+        public QualifiedType Desugared { get; set; }
+        public QualifiedType BaseType { get; set; }
+
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
+        {
+            return visitor.VisitUnaryTransformType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new UnaryTransformType(this);
+        }
+    }
+
+    public class VectorType : Type
+    {
+        public VectorType()
+        {
+        }
+
+        public VectorType(VectorType type)
+            : base(type)
+        {
+        }
+
+        public QualifiedType ElementType { get; set; }
+        public uint NumElements { get; set; }
+
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
+        {
+            return visitor.VisitVectorType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new VectorType(this);
+        }
+    }
+
+    public class UnsupportedType : Type
+    {
+        public UnsupportedType()
+        {
+        }
+
+        public UnsupportedType(UnsupportedType type)
+            : base(type)
+        {
+        }
+
+        public string Description;
+
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
+        {
+            return visitor.VisitUnsupportedType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new UnsupportedType(this);
         }
     }
 
@@ -655,6 +1096,8 @@ namespace CppSharp.AST
         WideChar,
         Char,
         UChar,
+        Char16,
+        Char32,
         Short,
         UShort,
         Int,
@@ -663,11 +1106,15 @@ namespace CppSharp.AST
         ULong,
         LongLong,
         ULongLong,
+        Int128,
+        UInt128,
+        Half,
         Float,
         Double,
+        LongDouble,
+        Float128,
         IntPtr,
         UIntPtr,
-        Char16
     }
 
     /// <summary>
@@ -682,6 +1129,12 @@ namespace CppSharp.AST
         public BuiltinType(PrimitiveType type)
         {
             Type = type;
+        }
+
+        public BuiltinType(BuiltinType type)
+            : base(type)
+        {
+            Type = type.Type;
         }
 
         public bool IsUnsigned
@@ -706,9 +1159,14 @@ namespace CppSharp.AST
         // Primitive type of built-in type.
         public PrimitiveType Type;
 
-        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals)
+        public override T Visit<T>(ITypeVisitor<T> visitor, TypeQualifiers quals = new TypeQualifiers())
         {
             return visitor.VisitBuiltinType(this, quals);
+        }
+
+        public override object Clone()
+        {
+            return new BuiltinType(this);
         }
 
         public override bool Equals(object obj)
@@ -740,6 +1198,8 @@ namespace CppSharp.AST
         T VisitDecayedType(DecayedType decayed, TypeQualifiers quals);
         T VisitTemplateSpecializationType(TemplateSpecializationType template,
                                           TypeQualifiers quals);
+        T VisitDependentTemplateSpecializationType(
+            DependentTemplateSpecializationType template, TypeQualifiers quals);
         T VisitPrimitiveType(PrimitiveType type, TypeQualifiers quals);
         T VisitDeclaration(Declaration decl, TypeQualifiers quals);
         T VisitTemplateParameterType(TemplateParameterType param,
@@ -751,6 +1211,9 @@ namespace CppSharp.AST
         T VisitDependentNameType(DependentNameType dependent,
             TypeQualifiers quals);
         T VisitPackExpansionType(PackExpansionType packExpansionType, TypeQualifiers quals);
+        T VisitUnaryTransformType(UnaryTransformType unaryTransformType, TypeQualifiers quals);
+        T VisitVectorType(VectorType vectorType, TypeQualifiers quals);
         T VisitCILType(CILType type, TypeQualifiers quals);
+        T VisitUnsupportedType(UnsupportedType type, TypeQualifiers quals);
     }
 }

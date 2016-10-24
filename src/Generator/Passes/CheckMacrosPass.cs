@@ -42,6 +42,10 @@ namespace CppSharp.Passes
     ///     CS_CONSTRAINT(TYPE [, TYPE]*) (templates)
     ///         Used to define constraint of generated generic type or generic method.
     /// 
+    ///     CS_INTERNAL (methods)
+    ///         Used to flag a method as internal to an assembly. So, it is
+    ///         not accessible outside that assembly.
+    /// 
     /// There isn't a standardized header provided by CppSharp so you will
     /// have to define these on your own.
     /// </summary>
@@ -75,7 +79,7 @@ namespace CppSharp.Passes
                                     e.MacroLocation != MacroLocation.FunctionBody &&
                                     e.MacroLocation != MacroLocation.FunctionParameters))
             {
-                Log.Debug("Decl '{0}' was ignored due to ignore macro",
+                Diagnostics.Debug("Decl '{0}' was ignored due to ignore macro",
                     decl.Name);
                 decl.ExplicitlyIgnore();
             }
@@ -155,6 +159,9 @@ namespace CppSharp.Passes
                 || e.Text == Prefix + "_EQUALS"))
                 method.ExplicitlyIgnore();
 
+            if (expansions.Any(e => e.Text == Prefix + "_INTERNAL"))
+                method.Access = AccessSpecifier.Internal;
+
             return base.VisitMethodDecl(method);
         }
 
@@ -196,40 +203,34 @@ namespace CppSharp.Passes
 
         public override bool VisitClassTemplateDecl(ClassTemplate template)
         {
-            var expansions = template.PreprocessedEntities.OfType<MacroExpansion>();
-
-            var expansion = expansions.FirstOrDefault(e => e.Text.StartsWith(Prefix + "_CONSTRAINT"));
-            if (expansion != null)
-            {
-                var args = GetArguments(expansion.Text);
-                for (var i = 0; i < template.Parameters.Count && i < args.Length; ++i)
-                {
-                    var param = template.Parameters[i];
-                    param.Constraint = args[i];
-                    template.Parameters[i] = param;
-                }
-            }
+            CheckForTemplateConstraints(template);
 
             return base.VisitClassTemplateDecl(template);
         }
 
         public override bool VisitFunctionTemplateDecl(FunctionTemplate template)
         {
+            CheckForTemplateConstraints(template);
+
+            return base.VisitFunctionTemplateDecl(template);
+        }
+
+        private void CheckForTemplateConstraints(Template template)
+        {
             var expansions = template.PreprocessedEntities.OfType<MacroExpansion>();
 
-            var expansion = expansions.FirstOrDefault(e => e.Text.StartsWith(Prefix + "_CONSTRAINT"));
+            var expansion = expansions.FirstOrDefault(
+                e => e.Text.StartsWith(Prefix + "_CONSTRAINT", StringComparison.Ordinal));
             if (expansion != null)
             {
                 var args = GetArguments(expansion.Text);
                 for (var i = 0; i < template.Parameters.Count && i < args.Length; ++i)
                 {
-                    var param = template.Parameters[i];
-                    param.Constraint = args[i];
-                    template.Parameters[i] = param;
+                    var templateParam = template.Parameters[i] as TypeTemplateParameter;
+                    if (templateParam != null)
+                        templateParam.Constraint = args[i];
                 }
             }
-
-            return base.VisitFunctionTemplateDecl(template);
         }
 
         private static string[] GetArguments(string str)

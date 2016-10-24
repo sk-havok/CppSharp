@@ -13,15 +13,15 @@ namespace CppSharp.Passes
     {
         public GetterSetterToPropertyPass()
         {
-            Options.VisitClassFields = false;
-            Options.VisitClassProperties = false;
-            Options.VisitNamespaceEnums = false;
-            Options.VisitNamespaceTemplates = false;
-            Options.VisitNamespaceTypedefs = false;
-            Options.VisitNamespaceEvents = false;
-            Options.VisitNamespaceVariables = false;
-            Options.VisitFunctionParameters = false;
-            Options.VisitTemplateArguments = false;
+            VisitOptions.VisitClassFields = false;
+            VisitOptions.VisitClassProperties = false;
+            VisitOptions.VisitNamespaceEnums = false;
+            VisitOptions.VisitNamespaceTemplates = false;
+            VisitOptions.VisitNamespaceTypedefs = false;
+            VisitOptions.VisitNamespaceEvents = false;
+            VisitOptions.VisitNamespaceVariables = false;
+            VisitOptions.VisitFunctionParameters = false;
+            VisitOptions.VisitTemplateArguments = false;
         }
 
         static bool IsSetter(Function method)
@@ -54,7 +54,7 @@ namespace CppSharp.Passes
             var prop2 = @class.Properties.FirstOrDefault(property => property.Name == name);
 
             if (prop == null && prop2 != null)
-                Driver.Diagnostics.Debug("Property {0}::{1} already exists (type: {2})",
+                Diagnostics.Debug("Property {0}::{1} already exists (type: {2})",
                     @class.Name, name, type.Type.ToString());
 
             if (prop != null)
@@ -76,7 +76,7 @@ namespace CppSharp.Passes
             if (!VisitDeclaration(method))
                 return false;
 
-            if (ASTUtils.CheckIgnoreMethod(method, Driver.Options))
+            if (ASTUtils.CheckIgnoreMethod(method, Options))
                 return false;
 
             var @class = method.Namespace as Class;
@@ -100,7 +100,7 @@ namespace CppSharp.Passes
                 // Do not generate the original method now that we know it is a getter.
                 method.GenerationKind = GenerationKind.Internal;
 
-                Driver.Diagnostics.Debug("Getter created: {0}::{1}", @class.Name, name);
+                Diagnostics.Debug("Getter created: {0}::{1}", @class.Name, name);
 
                 return false;
             }
@@ -117,7 +117,7 @@ namespace CppSharp.Passes
                 // Ignore the original method now that we know it is a setter.
                 method.GenerationKind = GenerationKind.Internal;
 
-                Driver.Diagnostics.Debug("Setter created: {0}::{1}", @class.Name, name);
+                Diagnostics.Debug("Setter created: {0}::{1}", @class.Name, name);
 
                 return false;
             }

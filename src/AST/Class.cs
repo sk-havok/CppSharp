@@ -10,7 +10,8 @@ namespace CppSharp.AST
     {
         Private,
         Protected,
-        Public
+        Public,
+        Internal
     }
 
     // A C++ access specifier declaration.
@@ -25,6 +26,18 @@ namespace CppSharp.AST
     // Represents a base class of a C++ class.
     public class BaseClassSpecifier
     {
+        public BaseClassSpecifier()
+        {
+        }
+
+        public BaseClassSpecifier(BaseClassSpecifier other)
+        {
+            Access = other.Access;
+            IsVirtual = other.IsVirtual;
+            Type = other.Type;
+            Offset = other.Offset;
+        }
+
         public AccessSpecifier Access { get; set; }
         public bool IsVirtual { get; set; }
         public Type Type { get; set; }
@@ -114,28 +127,7 @@ namespace CppSharp.AST
             IsPOD = false;
             Type = ClassType.RefType;
             Layout = new ClassLayout();
-        }
-
-        public Class(Class @class)
-            : base(@class)
-        {
-            Bases = new List<BaseClassSpecifier>(@class.Bases);
-            Fields = new List<Field>(@class.Fields);
-            Properties = new List<Property>(@class.Properties);
-            Methods = new List<Method>(@class.Methods);
-            Specifiers = new List<AccessSpecifierDecl>(@class.Specifiers);
-            IsPOD = @class.IsPOD;
-            Type = @class.Type;
-            Layout = new ClassLayout(@class.Layout);
-            IsAbstract = @class.IsAbstract;
-            IsUnion = @class.IsUnion;
-            IsOpaque = @class.IsOpaque;
-            IsDynamic = @class.IsDynamic;
-            IsPolymorphic = @class.IsPolymorphic;
-            HasNonTrivialDefaultConstructor = @class.HasNonTrivialDefaultConstructor;
-            HasNonTrivialCopyConstructor = @class.HasNonTrivialCopyConstructor;
-            HasNonTrivialDestructor = @class.HasNonTrivialDestructor;
-            IsStatic = @class.IsStatic;
+            specializations = new List<ClassTemplateSpecialization>();
         }
 
         public bool HasBase
@@ -167,11 +159,18 @@ namespace CppSharp.AST
             get
             {
                 return HasBaseClass && !IsValueType
+                       && Bases[0].Class != null
                        && !Bases[0].Class.IsValueType
                        && Bases[0].Class.GenerationKind != GenerationKind.None;
             }
         }
 
+        public bool NeedsBase
+        {
+            get { return HasNonIgnoredBase && IsGenerated; }
+        }
+
+        // When we have an interface, this is the class mapped to that interface.
         public Class OriginalClass { get; set; }
 
         public bool IsValueType
@@ -219,6 +218,22 @@ namespace CppSharp.AST
             }
         }
 
+        /// <summary>
+        /// If this class is a template, this list contains all of its specializations.
+        /// <see cref="ClassTemplate"/> cannot be relied upon to contain all of them because
+        /// ClassTemplateDecl in Clang is not a complete declaration, it only serves to forward template classes.
+        /// </summary>
+        public List<ClassTemplateSpecialization> Specializations
+        {
+            get
+            {
+                if (!IsDependent)
+                    throw new InvalidOperationException(
+                        "Only dependent classes have specializations.");
+                return specializations;
+            }
+        }
+
         public override IEnumerable<Function> FindOperator(CXXOperatorKind kind)
         {
             return Methods.Where(m => m.OperatorKind == kind);
@@ -258,5 +273,7 @@ namespace CppSharp.AST
         {
             return visitor.VisitClassDecl(this);
         }
+
+        private List<ClassTemplateSpecialization> specializations;
     }
 }

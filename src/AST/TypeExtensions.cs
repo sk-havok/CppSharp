@@ -120,20 +120,44 @@
         {
             t = t.Desugar();
 
-            var tag = t as TagType;
-            if (tag != null)
-            {
-                decl = tag.Declaration as T;
-                return decl != null;
-            }
-
+            TagType tagType = null;
             var type = t as TemplateSpecializationType;
             if (type != null)
             {
-                var templatedClass = ((ClassTemplate)type.Template).TemplatedClass;
-                decl = templatedClass.CompleteDeclaration == null
-                    ? templatedClass as T
-                    : (T) templatedClass.CompleteDeclaration;
+                if (type.IsDependent)
+                {
+                    if (type.Template is TypeAliasTemplate)
+                    {
+                        Class @class;
+                        type.Desugared.Type.TryGetClass(out @class);
+                        decl = @class as T;
+                        return decl != null;
+                    }
+
+                    var classTemplate = type.Template as ClassTemplate;
+                    if (classTemplate != null)
+                    {
+                        var templatedClass = classTemplate.TemplatedClass;
+                        decl = templatedClass.CompleteDeclaration == null
+                            ? templatedClass as T
+                            : (T) templatedClass.CompleteDeclaration;
+                        return decl != null;
+                    }
+
+                    var templateTemplateParameter = type.Template as TemplateTemplateParameter;
+                    if (templateTemplateParameter != null)
+                        return (decl = templateTemplateParameter.TemplatedDecl as T) != null;
+                }
+                tagType = (TagType) (type.Desugared.Type.GetFinalPointee() ?? type.Desugared.Type);
+            }
+            else
+            {
+                tagType = t as TagType;
+            }
+
+            if (tagType != null)
+            {
+                decl = tagType.Declaration as T;
                 return decl != null;
             }
 
@@ -178,6 +202,10 @@
                 if (replacement != null)
                     return replacement.Desugar();
             }
+
+            var attributedType = t as AttributedType;
+            if (attributedType != null)
+                return attributedType.Equivalent.Type.Desugar();
 
             return t;
         }
@@ -228,6 +256,38 @@
                     finalPointee = pointee;
             }
             return finalPointee;
+        }
+
+        public static PointerType GetFinalPointer(this Type t)
+        {
+            var type = t as PointerType;
+
+            if (type == null)
+                return null;
+            
+            var pointee = type.Desugar().GetPointee();
+
+            if (pointee.IsPointer())
+                return pointee.GetFinalPointer();
+
+            return type;
+        }
+
+        public static bool ResolvesTo(this QualifiedType type, QualifiedType other)
+        {
+            if (!type.Qualifiers.Equals(other.Qualifiers))
+                return false;
+
+            var left = type.Type.Desugar();
+            var right = other.Type.Desugar();
+            var leftPointer = left as PointerType;
+            var rightPointer = right as PointerType;
+            if (leftPointer != null && rightPointer != null)
+            {
+                return leftPointer.Modifier == rightPointer.Modifier &&
+                    leftPointer.QualifiedPointee.ResolvesTo(rightPointer.QualifiedPointee);
+            }
+            return left.Equals(right);
         }
     }
 }

@@ -18,3 +18,21 @@ public:
 };
 
 DLL_API int FooCallFoo(Foo* foo);
+
+class DLL_API BaseClassVirtual
+{
+public:
+    BaseClassVirtual();
+    BaseClassVirtual(const BaseClassVirtual& other);
+    static int virtualCallRetInt(BaseClassVirtual* base);
+    virtual int retInt();
+    static BaseClassVirtual getBase();
+    static BaseClassVirtual* getBasePtr();
+};
+
+class DLL_API DerivedClassVirtual : public BaseClassVirtual
+{
+public:
+    DerivedClassVirtual();
+    virtual int retInt() override;
+};

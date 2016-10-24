@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using CppSharp.AST.Extensions;
 
 namespace CppSharp.AST
 {
@@ -25,7 +26,8 @@ namespace CppSharp.AST
     {
         Regular,
         IndirectReturnType,
-        OperatorParameter
+        OperatorParameter,
+        ImplicitDestructorParameter
     }
 
     public class Parameter : Declaration, ITypedDecl
@@ -73,13 +75,29 @@ namespace CppSharp.AST
         {
             return visitor.VisitParameterDecl(this);
         }
+
+        /// <summary>
+        /// HACK: in many cases QualifiedType.Qualifiers.IsConst does not work.
+        /// It's false in Clang to begin with. I tried fixing it to no avail.
+        /// I don't have any more time at the moment.
+        /// </summary>
+        public bool IsConst
+        {
+            get { return DebugText.StartsWith("const ", System.StringComparison.Ordinal); }
+        }
     }
 
     public class ParameterTypeComparer : IEqualityComparer<Parameter>
     {
+        public static readonly ParameterTypeComparer Instance = new ParameterTypeComparer();
+
+        private ParameterTypeComparer()
+        {
+        }
+
         public bool Equals(Parameter x, Parameter y)
         {
-            return x.QualifiedType == y.QualifiedType;
+            return x.QualifiedType.ResolvesTo(y.QualifiedType);
         }
 
         public int GetHashCode(Parameter obj)
@@ -94,7 +112,8 @@ namespace CppSharp.AST
         ComplementOperator,
         AbstractImplCall,
         DefaultValueOverload,
-        InterfaceInstance
+        InterfaceInstance,
+        AdjustedMethod
     }
 
     public class Function : Declaration, ITypedDecl, IMangledDecl
@@ -126,6 +145,7 @@ namespace CppSharp.AST
             OriginalFunction = function.OriginalFunction;
             Mangled = function.Mangled;
             Index = function.Index;
+            Signature = function.Signature;
             if (function.SpecializationInfo != null)
             {
                 SpecializationInfo = new FunctionTemplateSpecialization(function.SpecializationInfo);
@@ -150,6 +170,8 @@ namespace CppSharp.AST
         public CallingConvention CallingConvention { get; set; }
 
         public FunctionTemplateSpecialization SpecializationInfo { get; set; }
+
+        public Function InstantiatedFrom { get; set; }
 
         public bool IsThisCall
         {
@@ -191,6 +213,13 @@ namespace CppSharp.AST
                     param.Kind == ParameterKind.IndirectReturnType);
 
                 return hiddenParam.QualifiedType;
+            }
+            set
+            {
+                if (HasIndirectReturnTypeParameter)
+                    Parameters.Single(p => p.Kind == ParameterKind.IndirectReturnType).QualifiedType = value;
+                else
+                    ReturnType = value;
             }
         }
 

@@ -8,15 +8,7 @@ namespace CppSharp.AST
         public Type Type { get { return QualifiedType.Type; } }
         public QualifiedType QualifiedType { get; set; }
 
-        public uint Offset { get; set; }
         public Class Class { get; set; }
-
-        public uint OffsetInBytes
-        {
-            get { return Offset / (sizeof (byte) * 8); }
-        }
-
-        public Expression Expression { get; set; }
 
         public bool IsBitField { get; set; }
 
@@ -24,7 +16,6 @@ namespace CppSharp.AST
 
         public Field()
         {
-            Offset = 0;
         }
 
         public Field(string name, QualifiedType type, AccessSpecifier access)
@@ -32,15 +23,12 @@ namespace CppSharp.AST
             Name = name;
             QualifiedType = type;
             Access = access;
-            Offset = 0;
         }
 
         public Field(Field field): base(field)
         {
             QualifiedType = field.QualifiedType;
-            Offset = field.Offset;
             Class = field.Class;
-            Expression = field.Expression;
             IsBitField = field.IsBitField;
             BitWidth = field.BitWidth;
         }

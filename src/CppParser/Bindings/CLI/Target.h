@@ -46,6 +46,10 @@ namespace CppSharp
             static ParserTargetInfo^ __CreateInstance(::System::IntPtr native);
             ParserTargetInfo();
 
+            ParserTargetInfo(CppSharp::Parser::ParserTargetInfo^ _0);
+
+            ~ParserTargetInfo();
+
             property System::String^ ABI
             {
                 System::String^ get();
@@ -279,6 +283,9 @@ namespace CppSharp
                 unsigned int get();
                 void set(unsigned int);
             }
+
+            protected:
+            bool __ownsNativeInstance;
         };
     }
 }

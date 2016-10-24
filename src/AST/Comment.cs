@@ -25,6 +25,25 @@ namespace CppSharp.AST
         Merged
     }
 
+    public enum CommentKind
+    {
+        FullComment,
+        BlockContentComment,
+        BlockCommandComment,
+        ParamCommandComment,
+        TParamCommandComment,
+        VerbatimBlockComment,
+        VerbatimLineComment,
+        ParagraphComment,
+        HTMLTagComment,
+        HTMLStartTagComment,
+        HTMLEndTagComment,
+        TextComment,
+        InlineContentComment,
+        InlineCommandComment,
+        VerbatimBlockLineComment,
+    }
+
     /// <summary>
     /// Represents a raw C++ comment.
     /// </summary>
@@ -103,6 +122,8 @@ namespace CppSharp.AST
     /// </summary>
     public abstract class Comment
     {
+        public CommentKind Kind { get; set; }
+
         public abstract void Visit<T>(ICommentVisitor<T> visitor);
     }
 
@@ -153,10 +174,13 @@ namespace CppSharp.AST
             get { return (CommentCommandKind) CommandId; }
         }
 
+        public ParagraphComment ParagraphComment { get; set; }
+
         public List<Argument> Arguments;
 
         public BlockCommandComment()
         {
+            Kind = CommentKind.BlockCommandComment;
             Arguments = new List<Argument>();
         }
 
@@ -173,6 +197,11 @@ namespace CppSharp.AST
     {
         public const uint InvalidParamIndex = ~0U;
         public const uint VarArgParamIndex = ~0U/*InvalidParamIndex*/ - 1U;
+
+        public ParamCommandComment()
+        {
+            Kind = CommentKind.ParamCommandComment;
+        }
 
         public enum PassDirection
         {
@@ -222,6 +251,7 @@ namespace CppSharp.AST
 
         public TParamCommandComment()
         {
+            Kind = CommentKind.TParamCommandComment;
             Position = new List<uint>();
         }
   
@@ -242,6 +272,7 @@ namespace CppSharp.AST
 
         public VerbatimBlockComment()
         {
+            Kind = CommentKind.VerbatimBlockComment;
             Lines = new List<VerbatimBlockLineComment>();
         }
 
@@ -260,6 +291,11 @@ namespace CppSharp.AST
     {
         public string Text;
 
+        public VerbatimLineComment()
+        {
+            Kind = CommentKind.VerbatimLineComment;
+        }
+
         public override void Visit<T>(ICommentVisitor<T> visitor)
         {
             visitor.VisitVerbatimLine(this);
@@ -277,6 +313,7 @@ namespace CppSharp.AST
 
         public ParagraphComment()
         {
+            Kind = CommentKind.ParagraphComment;
             Content = new List<InlineContentComment>();
         }
 
@@ -291,7 +328,12 @@ namespace CppSharp.AST
     /// </summary>
     public abstract class InlineContentComment : Comment
     {
+        protected InlineContentComment()
+        {
+            Kind = CommentKind.InlineContentComment;
+        }
 
+        public bool HasTrailingNewline { get; set; }
     }
 
     /// <summary>
@@ -302,6 +344,11 @@ namespace CppSharp.AST
     public abstract class HTMLTagComment : InlineContentComment
     {
         public string TagName;
+
+        protected HTMLTagComment()
+        {
+            Kind = CommentKind.HTMLTagComment;
+        }
     }
 
     /// <summary>
@@ -319,6 +366,7 @@ namespace CppSharp.AST
 
         public HTMLStartTagComment()
         {
+            Kind = CommentKind.HTMLStartTagComment;
             Attributes = new List<Attribute>();
         }
 
@@ -333,6 +381,11 @@ namespace CppSharp.AST
     /// </summary>
     public class HTMLEndTagComment : HTMLTagComment
     {
+        public HTMLEndTagComment()
+        {
+            Kind = CommentKind.HTMLEndTagComment;
+        }
+
         public override void Visit<T>(ICommentVisitor<T> visitor)
         {
             visitor.VisitHTMLEndTag(this);
@@ -346,6 +399,11 @@ namespace CppSharp.AST
     {
         public string Text;
 
+        public TextComment()
+        {
+            Kind = CommentKind.TextComment;
+        }
+
         public override void Visit<T>(ICommentVisitor<T> visitor)
         {
             visitor.VisitText(this);
@@ -355,7 +413,7 @@ namespace CppSharp.AST
     /// <summary>
     /// A command with word-like arguments that is considered inline content.
     /// </summary>
-    public class InlineCommandComment : Comment
+    public class InlineCommandComment : InlineContentComment
     {
         public struct Argument
         {
@@ -370,12 +428,20 @@ namespace CppSharp.AST
             RenderEmphasized
         }
 
-        public RenderKind Kind;
+        public uint CommandId { get; set; }
+
+        public CommentCommandKind CommandKind
+        {
+            get { return (CommentCommandKind) CommandId; }
+        }
+
+        public RenderKind CommentRenderKind;
 
         public List<Argument> Arguments;
 
         public InlineCommandComment()
         {
+            Kind = CommentKind.InlineCommandComment;
             Arguments = new List<Argument>();
         }
 
@@ -388,9 +454,14 @@ namespace CppSharp.AST
     /// <summary>
     /// A line of text contained in a verbatim block.
     /// </summary>
-    public class VerbatimBlockLineComment : BlockCommandComment
+    public class VerbatimBlockLineComment : Comment
     {
         public string Text;
+
+        public VerbatimBlockLineComment()
+        {
+            Kind = CommentKind.VerbatimBlockLineComment;
+        }
 
         public override void Visit<T>(ICommentVisitor<T> visitor)
         {
@@ -430,6 +501,7 @@ namespace CppSharp.AST
         Constant,
         Copyright,
         Date,
+        Def,
         Defgroup,
         Dependency,
         Deprecated,
@@ -440,6 +512,7 @@ namespace CppSharp.AST
         E,
         Em,
         Enum,
+        Exception,
         Flbrace,
         Frbrace,
         Flsquare,
@@ -512,6 +585,8 @@ namespace CppSharp.AST
         Templatefield,
         Textblock,
         Slashtextblock,
+        Throw,
+        Throws,
         Todo,
         Tparam,
         Typedef,

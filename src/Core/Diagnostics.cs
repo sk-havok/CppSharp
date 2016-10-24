@@ -5,19 +5,6 @@ using System.Linq;
 
 namespace CppSharp
 {
-    public enum DiagnosticId
-    {
-        None,
-        UnresolvedDeclaration,
-        AmbiguousOverload,
-        InvalidOperatorOverload,
-        SymbolNotFound,
-        FileGenerated,
-        ParseResult,
-        ParserDiagnostic,
-        PropertySynthetized
-    }
-
     /// <summary>
     /// Represents the kind of the diagnostic.
     /// </summary>
@@ -41,23 +28,18 @@ namespace CppSharp
         public int Column;
     }
 
-    public interface IDiagnosticConsumer
+    public interface IDiagnostics
     {
+        DiagnosticKind Level { get; set; }
         void Emit(DiagnosticInfo info);
-        void PushIndent(int level);
+        void PushIndent(int level = 4);
         void PopIndent();
     }
 
     public static class DiagnosticExtensions
     {
-        public static void Debug(this IDiagnosticConsumer consumer,
+        public static void Debug(this IDiagnostics consumer,
             string msg, params object[] args)
-        {
-            consumer.Debug(DiagnosticId.None, msg, args);
-        }
-
-        public static void Debug(this IDiagnosticConsumer consumer,
-            DiagnosticId id, string msg, params object[] args)
         {
             var diagInfo = new DiagnosticInfo
             {
@@ -68,8 +50,8 @@ namespace CppSharp
             consumer.Emit(diagInfo);
         }
 
-        public static void EmitMessage(this IDiagnosticConsumer consumer,
-            DiagnosticId id, string msg, params object[] args)
+        public static void Message(this IDiagnostics consumer,
+            string msg, params object[] args)
         {
             var diagInfo = new DiagnosticInfo
                 {
@@ -80,8 +62,8 @@ namespace CppSharp
             consumer.Emit(diagInfo);
         }
 
-        public static void EmitWarning(this IDiagnosticConsumer consumer,
-            DiagnosticId id, string msg, params object[] args)
+        public static void Warning(this IDiagnostics consumer,
+            string msg, params object[] args)
         {
             var diagInfo = new DiagnosticInfo
             {
@@ -92,8 +74,8 @@ namespace CppSharp
             consumer.Emit(diagInfo);
         }
 
-        public static void EmitError(this IDiagnosticConsumer consumer,
-            DiagnosticId id, string msg, params object[] args)
+        public static void Error(this IDiagnostics consumer,
+            string msg, params object[] args)
         {
             var diagInfo = new DiagnosticInfo
             {
@@ -104,31 +86,7 @@ namespace CppSharp
             consumer.Emit(diagInfo);
         }
 
-        public static void EmitMessage(this IDiagnosticConsumer consumer,
-            string msg, params object[] args)
-        {
-            var diagInfo = new DiagnosticInfo
-                {
-                    Kind = DiagnosticKind.Message,
-                    Message = string.Format(msg, args)
-                };
-
-            consumer.Emit(diagInfo);
-        }
-
-        public static void EmitWarning(this IDiagnosticConsumer consumer,
-            string msg, params object[] args)
-        {
-            var diagInfo = new DiagnosticInfo
-            {
-                Kind = DiagnosticKind.Warning,
-                Message = string.Format(msg, args)
-            };
-
-            consumer.Emit(diagInfo);
-        }
-
-        public static void EmitError(this IDiagnosticConsumer consumer,
+        public static void Error(this IDiagnostics consumer,
             string msg)
         {
             var diagInfo = new DiagnosticInfo
@@ -141,10 +99,10 @@ namespace CppSharp
         }
     }
 
-    public class TextDiagnosticPrinter : IDiagnosticConsumer
+    public class TextDiagnosticPrinter : IDiagnostics
     {
         public Stack<int> Indents;
-        public DiagnosticKind Level;
+        public DiagnosticKind Level { get; set; }
 
         public TextDiagnosticPrinter()
         {

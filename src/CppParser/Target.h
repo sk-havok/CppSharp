@@ -28,6 +28,9 @@ enum class ParserIntType
 
 struct CS_API ParserTargetInfo
 {
+    ParserTargetInfo();
+    ~ParserTargetInfo();
+
     STRING(ABI);
 
     ParserIntType Char16Type;

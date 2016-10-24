@@ -4,35 +4,19 @@ using System.IO;
 using System.Text;
 using CppSharp.AST;
 using CppSharp.Generators;
-using CppSharp.Parser;
-using CppAbi = CppSharp.Parser.AST.CppAbi;
 
 namespace CppSharp
 {
-    public class DriverOptions : ParserOptions
+    public class DriverOptions
     {
-        static public bool IsUnixPlatform
-        {
-            get
-            {
-                var platform = Environment.OSVersion.Platform;
-                return platform == PlatformID.Unix || platform == PlatformID.MacOSX;
-            }
-        }
         public DriverOptions()
         {
-            Headers = new List<string>();
-            Libraries = new List<string>();
-
-            Abi = IsUnixPlatform ? CppAbi.Itanium : CppAbi.Microsoft;
-            MicrosoftMode = !IsUnixPlatform;
-
             OutputDir = Directory.GetCurrentDirectory();
-            Libraries = new List<string>();
-            CheckSymbols = false;
+
+            SystemModule = new Module { OutputNamespace = string.Empty, LibraryName = "Std" };
+            Modules = new List<Module> { SystemModule };
 
             GeneratorKind = GeneratorKind.CSharp;
-            GenerateLibraryNamespace = true;
             GeneratePartialClasses = true;
             GenerateClassMarshals = false;
             OutputInteropIncludes = true;
@@ -41,9 +25,9 @@ namespace CppSharp
 
             Encoding = Encoding.ASCII;
 
-            CodeFiles = new List<string>();
-
             StripLibPrefix = true;
+
+            ExplicitlyPatchedVirtualFunctions = new HashSet<string>();
         }
 
         // General options
@@ -59,46 +43,58 @@ namespace CppSharp
         /// </summary>
         public bool DryRun;
 
-        // Parser options
-        public List<string> Headers;
-        public bool IgnoreParseWarnings;
-        public bool IgnoreParseErrors;
+        public Module SystemModule { get; private set; }
+        public List<Module> Modules { get; private set; }
 
-        public bool IsItaniumLikeAbi { get { return Abi != CppAbi.Microsoft; } }
-        public bool IsMicrosoftAbi { get { return Abi == CppAbi.Microsoft; } }
-
-        // Library options
-        public List<string> Libraries;
-        public bool CheckSymbols;
-
-        private string sharedLibraryName;
-        public string SharedLibraryName
+        public Module MainModule
         {
             get
             {
-                if (string.IsNullOrEmpty(sharedLibraryName))
-                    return LibraryName;
-                return sharedLibraryName;
+                if (Modules.Count == 1)
+                    Modules.Add(new Module());
+                return Modules[1];
             }
-            set { sharedLibraryName = value; }
+        }
+
+        // Parser options
+        public List<string> Headers { get { return MainModule.Headers; } }
+        public bool IgnoreParseWarnings;
+        public bool IgnoreParseErrors;
+
+        // Library options
+        public List<string> Libraries { get { return MainModule.Libraries; } }
+        public bool CheckSymbols;
+
+        public string SharedLibraryName
+        {
+            get { return MainModule.SharedLibraryName; }
+            set { MainModule.SharedLibraryName = value; }
         }
 
         // Generator options
         public GeneratorKind GeneratorKind;
-        public string OutputNamespace;
+
+        public string OutputNamespace
+        {
+            get { return MainModule.OutputNamespace; }
+            set { MainModule.OutputNamespace = value; }
+        }
+
         public string OutputDir;
-        public string LibraryName;
+
+        public string LibraryName
+        {
+            get { return MainModule.LibraryName; }
+            set { MainModule.LibraryName = value; }
+        }
+
         public bool OutputInteropIncludes;
-        public bool GenerateLibraryNamespace;
         public bool GenerateFunctionTemplates;
         public bool GeneratePartialClasses;
-        public bool GenerateVirtualTables;
-        public bool GenerateAbstractImpls;
         public bool GenerateInterfacesForMultipleInheritance;
         public bool GenerateInternalImports;
         public bool GenerateClassMarshals;
         public bool GenerateInlines;
-        public bool GenerateCopyConstructors;
         public bool UseHeaderDirectories;
 
         /// <summary>
@@ -124,7 +120,7 @@ namespace CppSharp
 
         /// <summary>
         /// If set to true the CLI generator will use ObjectOverridesPass to create
-        /// Equals, GetHashCode and (if the insertion operator << is overloaded) ToString
+        /// Equals, GetHashCode and (if the insertion operator &lt;&lt; is overloaded) ToString
         /// methods.
         /// </summary>
         public bool GenerateObjectOverrides;
@@ -133,7 +129,7 @@ namespace CppSharp
         public List<string> NoGenIncludeDirs;
 
         /// <summary>
-        /// Wether the generated C# code should be automatically compiled.
+        /// Whether the generated C# code should be automatically compiled.
         /// </summary>
         public bool CompileCode;
 
@@ -143,6 +139,12 @@ namespace CppSharp
         /// </summary>
         public bool GenerateFinalizers;
 
+        /// <summary>
+        /// If this option is off (the default), each header is parsed separately which is much slower
+        /// but safer because of a clean state of the preprocessor for each header.
+        /// </summary>
+        public bool UnityBuild { get; set; }
+
         public string IncludePrefix;
         public bool WriteOnlyWhenChanged;
         public Func<TranslationUnit, string> GenerateName;
@@ -151,18 +153,16 @@ namespace CppSharp
 
         public Encoding Encoding { get; set; }
 
-        private string inlinesLibraryName;
         public string InlinesLibraryName
         {
-            get
-            {
-                if (string.IsNullOrEmpty(inlinesLibraryName))
-                {
-                    return string.Format("{0}-inlines", OutputNamespace);
-                }
-                return inlinesLibraryName;
-            }
-            set { inlinesLibraryName = value; }
+            get { return MainModule.InlinesLibraryName; }
+            set { MainModule.InlinesLibraryName = value; }
+        }
+
+        public string TemplatesLibraryName
+        {
+            get { return MainModule.TemplatesLibraryName; }
+            set { MainModule.TemplatesLibraryName = value; }
         }
 
         public bool IsCSharpGenerator
@@ -175,13 +175,8 @@ namespace CppSharp
             get { return GeneratorKind == GeneratorKind.CLI; }
         }
 
-        public List<string> CodeFiles { get; private set; }
         public readonly List<string> DependentNameSpaces = new List<string>();
         public bool MarshalCharAsManagedChar { get; set; }
-        /// <summary>
-        /// Generates a single C# file.
-        /// </summary>
-        public bool GenerateSingleCSharpFile { get; set; }
 
         /// <summary>
         /// Generates default values of arguments in the C# code.
@@ -189,9 +184,18 @@ namespace CppSharp
         public bool GenerateDefaultValuesForArguments { get; set; }
 
         public bool StripLibPrefix { get; set; }
+
+        /// <summary>
+        /// C# end only: force patching of the virtual entries of the functions in this list.
+        /// </summary>
+        public HashSet<string> ExplicitlyPatchedVirtualFunctions { get; private set; }
     }
 
     public class InvalidOptionException : Exception
     {
+        public InvalidOptionException(string message) :
+            base(message)
+        {
+        }
     }
 }

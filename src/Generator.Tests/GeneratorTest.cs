@@ -29,30 +29,26 @@ namespace CppSharp.Utils
             options.GeneratorKind = kind;
             options.OutputDir = Path.Combine(GetOutputDirectory(), "gen", name);
             options.SharedLibraryName = name + ".Native";
-            options.GenerateLibraryNamespace = true;
             options.Quiet = true;
             options.IgnoreParseWarnings = true;
 
-            driver.Diagnostics.EmitMessage("");
-            driver.Diagnostics.EmitMessage("Generating bindings for {0} ({1})",
+            driver.Diagnostics.Message("");
+            driver.Diagnostics.Message("Generating bindings for {0} ({1})",
                 options.LibraryName, options.GeneratorKind.ToString());
 
             // Workaround for CLR which does not check for .dll if the
             // name already has a dot.
-            if (System.Type.GetType("Mono.Runtime") == null)
+            if (!Platform.IsMono)
                 options.SharedLibraryName += ".dll";
 
+            var parserOptions = driver.ParserOptions;
+            if (Platform.IsMacOS)
+                parserOptions.TargetTriple = Environment.Is64BitProcess ? "x86_64-apple-darwin" : "i686-apple-darwin";
+
             var path = Path.GetFullPath(GetTestsDirectory(name));
-            options.addIncludeDirs(path);
+            parserOptions.addIncludeDirs(path);
 
-            var headersPaths = new System.Collections.Generic.List<string> {
-                Path.GetFullPath(Path.Combine(path, "../../deps/llvm/tools/clang/lib/Headers"))
-            };
-
-            foreach (var header in headersPaths)
-                options.addSystemIncludeDirs(header);
-
-            driver.Diagnostics.EmitMessage("Looking for tests in: {0}", path);
+            driver.Diagnostics.Message("Looking for tests in: {0}", path);
             var files = Directory.EnumerateFiles(path, "*.h");
             foreach (var file in files)
                 options.Headers.Add(Path.GetFileName(file));

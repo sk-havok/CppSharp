@@ -41,11 +41,7 @@ namespace CppSharp.AST
         /// <summary>
         /// Declaration is generated to be used internally.
         /// </summary>
-        Internal,
-        /// <summary>
-        /// Declaration was already generated in a linked assembly.
-        /// </summary>
-        Link, 
+        Internal
     }
 
     /// <summary>
@@ -54,6 +50,10 @@ namespace CppSharp.AST
     public abstract class Declaration : INamedDecl
     {
         public SourceLocation Location;
+
+        public int LineNumberStart { get; set; }
+        public int LineNumberEnd { get; set; }
+        public bool IsImplicit { get; set; }
 
         private DeclarationContext @namespace;
         public DeclarationContext OriginalNamespace;
@@ -91,7 +91,7 @@ namespace CppSharp.AST
             set
             {
                 name = value;
-                if (string.IsNullOrEmpty(OriginalName))
+                if (OriginalName == null)
                     OriginalName = name;
             }
         }
@@ -116,7 +116,9 @@ namespace CppSharp.AST
             get { return OriginalName; }
         }
 
-        private string GetQualifiedName(Func<Declaration, string> getName,
+        public static string QualifiedNameSeparator = "::";
+
+        public string GetQualifiedName(Func<Declaration, string> getName,
             Func<Declaration, DeclarationContext> getNamespace)
         {
             if (Namespace == null)
@@ -132,10 +134,10 @@ namespace CppSharp.AST
             names.Add(getName(this));
             names = names.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 
-            return string.Join("::", names);
+            return string.Join(QualifiedNameSeparator, names);
         }
 
-        private List<Declaration> GatherNamespaces(DeclarationContext @namespace)
+        private static List<Declaration> GatherNamespaces(DeclarationContext @namespace)
         {
             var namespaces = new List<Declaration>();
 
@@ -153,7 +155,7 @@ namespace CppSharp.AST
         {
             get
             {
-                return GetQualifiedName(decl => decl.Name, decl => decl.Namespace);
+                return GetQualifiedName(decl => GetDeclName(decl, decl.Name), decl => decl.Namespace);
             }
         }
 
@@ -162,7 +164,7 @@ namespace CppSharp.AST
             get
             {
                 return GetQualifiedName(
-                    decl => decl.OriginalName, decl => decl.OriginalNamespace);
+                    decl => GetDeclName(decl, decl.OriginalName), decl => decl.OriginalNamespace);
             }
         }
 
@@ -171,7 +173,7 @@ namespace CppSharp.AST
             get
             { 
                 return GetQualifiedName(
-                    decl => decl.LogicalName, decl => decl.Namespace);
+                    decl => GetDeclName(decl, decl.LogicalName), decl => decl.Namespace);
             }
         }
 
@@ -180,8 +182,18 @@ namespace CppSharp.AST
             get
             {
                 return GetQualifiedName(
-                    decl => decl.LogicalOriginalName, decl => decl.OriginalNamespace);
+                    decl => GetDeclName(decl, decl.LogicalOriginalName), decl => decl.OriginalNamespace);
             }
+        }
+
+        private static string GetDeclName(Declaration decl, string name)
+        {
+            var specialization = decl as ClassTemplateSpecialization;
+            if (specialization != null)
+                return string.Format("{0}<{1}>", name,
+                    string.Join(", ", specialization.Arguments.Select(
+                        a => a.Type.Type == null ? string.Empty : a.Type.ToString())));
+            return name;
         }
 
         // Comment associated with declaration.
@@ -248,8 +260,7 @@ namespace CppSharp.AST
             {
                 var k = GenerationKind;
                 return k == GenerationKind.Generate
-                    || k == GenerationKind.Internal
-                    || k == GenerationKind.Link;
+                    || k == GenerationKind.Internal;
             }
         }
 
@@ -325,6 +336,7 @@ namespace CppSharp.AST
             : this()
         {
             Namespace = declaration.Namespace;
+            OriginalNamespace = declaration.OriginalNamespace;
             OriginalName = declaration.OriginalName;
             name = declaration.Name;
             Comment = declaration.Comment;
@@ -340,6 +352,9 @@ namespace CppSharp.AST
             PreprocessedEntities = new List<PreprocessedEntity>(
                 declaration.PreprocessedEntities);
             OriginalPtr = declaration.OriginalPtr;
+            LineNumberStart = declaration.LineNumberStart;
+            LineNumberEnd = declaration.LineNumberEnd;
+            IsImplicit = declaration.IsImplicit;
         }
 
         public override string ToString()
@@ -351,16 +366,36 @@ namespace CppSharp.AST
     }
 
     /// <summary>
-    /// Represents a type definition in C++.
+    /// Base class for declarations which introduce a typedef-name.
     /// </summary>
-    public class TypedefDecl : Declaration, ITypedDecl
+    public abstract class TypedefNameDecl : Declaration, ITypedDecl
     {
         public Type Type { get { return QualifiedType.Type; } }
         public QualifiedType QualifiedType { get; set; }
+        public bool IsSynthetized { get; set; }
+    }
 
+    /// <summary>
+    /// Represents a type definition in C++.
+    /// </summary>
+    public class TypedefDecl : TypedefNameDecl
+    {
         public override T Visit<T>(IDeclVisitor<T> visitor)
         {
             return visitor.VisitTypedefDecl(this);
+        }
+    }
+
+    /// <summary>
+    /// Represents a type alias in C++.
+    /// </summary>
+    public class TypeAlias : TypedefNameDecl
+    {
+        public TypeAliasTemplate DescribedAliasTemplate { get; set; }
+
+        public override T Visit<T>(IDeclVisitor<T> visitor)
+        {
+            return visitor.VisitTypeAliasDecl(this);
         }
     }
 
@@ -373,14 +408,24 @@ namespace CppSharp.AST
         T VisitMethodDecl(Method method);
         T VisitParameterDecl(Parameter parameter);
         T VisitTypedefDecl(TypedefDecl typedef);
+        T VisitTypeAliasDecl(TypeAlias typeAlias);
         T VisitEnumDecl(Enumeration @enum);
+        T VisitEnumItemDecl(Enumeration.Item item);
         T VisitVariableDecl(Variable variable);
-        T VisitClassTemplateDecl(ClassTemplate template);
-        T VisitFunctionTemplateDecl(FunctionTemplate template);
         T VisitMacroDefinition(MacroDefinition macro);
         T VisitNamespace(Namespace @namespace);
         T VisitEvent(Event @event);
         T VisitProperty(Property @property);
         T VisitFriend(Friend friend);
+        T VisitClassTemplateDecl(ClassTemplate template);
+        T VisitClassTemplateSpecializationDecl(ClassTemplateSpecialization specialization);
+        T VisitFunctionTemplateDecl(FunctionTemplate template);
+        T VisitFunctionTemplateSpecializationDecl(FunctionTemplateSpecialization specialization);
+        T VisitVarTemplateDecl(VarTemplate template);
+        T VisitVarTemplateSpecializationDecl(VarTemplateSpecialization template);
+        T VisitTemplateTemplateParameterDecl(TemplateTemplateParameter templateTemplateParameter);
+        T VisitTemplateParameterDecl(TypeTemplateParameter templateParameter);
+        T VisitNonTypeTemplateParameterDecl(NonTypeTemplateParameter nonTypeTemplateParameter);
+        T VisitTypeAliasTemplateDecl(TypeAliasTemplate typeAliasTemplate);
     }
 }

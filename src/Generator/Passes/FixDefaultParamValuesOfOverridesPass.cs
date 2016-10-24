@@ -8,10 +8,19 @@ namespace CppSharp.Passes
         {
             if (method.IsOverride && !method.IsSynthetized)
             {
-                Method rootBaseMethod = ((Class) method.Namespace).GetRootBaseMethod(method);
+                Method rootBaseMethod = ((Class) method.Namespace).GetBaseMethod(method);
                 for (int i = 0; i < method.Parameters.Count; i++)
                 {
-                    method.Parameters[i].DefaultArgument = rootBaseMethod.Parameters[i].DefaultArgument;
+                    var rootBaseParameter = rootBaseMethod.Parameters[i];
+                    var parameter = method.Parameters[i];
+                    if (rootBaseParameter.DefaultArgument == null)
+                    {
+                        parameter.DefaultArgument = null;
+                    }
+                    else
+                    {
+                        parameter.DefaultArgument = rootBaseParameter.DefaultArgument.Clone();
+                    }
                 }
             }
             return base.VisitMethodDecl(method);
