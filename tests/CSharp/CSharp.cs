@@ -150,7 +150,6 @@ namespace CppSharp.Tests
 
         public override void SetupPasses(Driver driver)
         {
-            driver.Options.GenerateInterfacesForMultipleInheritance = true;
             driver.Options.GeneratePropertiesAdvanced = true;
             // To ensure that calls to constructors in conversion operators
             // are not ambiguous with multiple inheritance pass enabled.
@@ -177,7 +176,7 @@ namespace CppSharp.Tests
         {
             new CaseRenamePass(
                 RenameTargets.Function | RenameTargets.Method | RenameTargets.Property | RenameTargets.Delegate | RenameTargets.Variable,
-                RenameCasePattern.UpperCamelCase).VisitLibrary(driver.Context.ASTContext);
+                RenameCasePattern.UpperCamelCase).VisitASTContext(driver.Context.ASTContext);
         }
 
         public static void Main(string[] args)

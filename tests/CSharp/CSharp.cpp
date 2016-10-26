@@ -262,6 +262,11 @@ long Proprietor::prop()
     return m_property;
 }
 
+const Baz& Proprietor::covariant()
+{
+    return Baz();
+}
+
 Bar::Items Proprietor::items() const
 {
     return _items;
@@ -1185,4 +1190,52 @@ void HasSecondaryBaseWithAbstractWithDefaultArg::abstract(const Foo& foo)
 
 void HasSecondaryBaseWithAbstractWithDefaultArg::abstractWithNoDefaultArg(const Foo& foo)
 {
+}
+
+MissingObjectOnVirtualCallSecondaryBase::MissingObjectOnVirtualCallSecondaryBase()
+{
+}
+
+void MissingObjectOnVirtualCallSecondaryBase::f()
+{
+}
+
+MissingObjectOnVirtualCall::MissingObjectOnVirtualCall()
+{
+}
+
+void MissingObjectOnVirtualCall::f()
+{
+}
+
+HasMissingObjectOnVirtualCall::HasMissingObjectOnVirtualCall()
+{
+}
+
+void HasMissingObjectOnVirtualCall::makeMissingObjectOnVirtualCall()
+{
+    stackOverflowOnVirtualCall->f();
+}
+
+void HasMissingObjectOnVirtualCall::setMissingObjectOnVirtualCall(MissingObjectOnVirtualCall* value)
+{
+    stackOverflowOnVirtualCall = value;
+}
+
+ImplementsAbstractsFromPrimaryAndSecondary::ImplementsAbstractsFromPrimaryAndSecondary()
+{
+}
+
+ImplementsAbstractsFromPrimaryAndSecondary::~ImplementsAbstractsFromPrimaryAndSecondary()
+{
+}
+
+int ImplementsAbstractsFromPrimaryAndSecondary::abstractInPrimaryBase()
+{
+    return 101;
+}
+
+int ImplementsAbstractsFromPrimaryAndSecondary::abstractInSecondaryBase()
+{
+    return 5;
 }

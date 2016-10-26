@@ -317,8 +317,8 @@ namespace CppSharp.Generator.Tests.AST
         {
             var bindingContext = new BindingContext(new TextDiagnosticPrinter(), new DriverOptions(),
                 new ParserOptions());
-            new CleanUnitPass { Context = bindingContext }.VisitLibrary(AstContext);
-            new CheckAmbiguousFunctions { Context = bindingContext }.VisitLibrary(AstContext);
+            new CleanUnitPass { Context = bindingContext }.VisitASTContext(AstContext);
+            new CheckAmbiguousFunctions { Context = bindingContext }.VisitASTContext(AstContext);
             Assert.IsTrue(AstContext.FindClass("HasAmbiguousFunctions").Single().FindMethod("ambiguous").IsAmbiguous);
         }
 
@@ -396,8 +396,8 @@ namespace CppSharp.Generator.Tests.AST
         public void TestCompletionOfClassTemplates()
         {
             var templates = AstContext.FindDecl<ClassTemplate>("ForwardedTemplate").ToList();
-            var template = templates.Single(
-                t => t.DebugText == "template <typename T>\r\nclass ForwardedTemplate\r\n{\r\n}");
+            var template = templates.Single(t => t.DebugText.Replace("\r", string.Empty) ==
+                "template <typename T>\r\nclass ForwardedTemplate\r\n{\r\n}".Replace("\r", string.Empty));
             Assert.IsFalse(template.IsIncomplete);
         }
 
@@ -410,6 +410,18 @@ namespace CppSharp.Generator.Tests.AST
         }
 
         [Test]
+        public void TestPrintingConstPointerWithConstType()
+        {
+            var template = AstContext.FindDecl<ClassTemplate>("TestSpecializationArguments").First();
+            var cppTypePrinter = new CppTypePrinter { PrintScopeKind = CppTypePrintScopeKind.Qualified };
+            var builtin = new BuiltinType(PrimitiveType.Char);
+            var pointee = new QualifiedType(builtin, new TypeQualifiers { IsConst = true });
+            var pointer = new QualifiedType(new PointerType(pointee), new TypeQualifiers { IsConst = true });
+            var type = pointer.Visit(cppTypePrinter);
+            Assert.AreEqual(type, "const char* const");
+        }
+
+        [Test]
         public void TestPrintingSpecializationWithConstValue()
         {
             var template = AstContext.FindDecl<ClassTemplate>("TestSpecializationArguments").First();
@@ -417,5 +429,12 @@ namespace CppSharp.Generator.Tests.AST
             Assert.That(template.Specializations.Last().Visit(cppTypePrinter),
                 Is.EqualTo("TestSpecializationArguments<const TestASTEnumItemByName>"));
         }
-    }
+
+        [Test]
+        public void TestLayoutBase()
+        {
+            var @class = AstContext.FindCompleteClass("TestComments");
+            Assert.That(@class.Layout.Bases.Count, Is.EqualTo(0));
+        }
+	}
 }

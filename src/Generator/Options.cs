@@ -17,7 +17,6 @@ namespace CppSharp
             Modules = new List<Module> { SystemModule };
 
             GeneratorKind = GeneratorKind.CSharp;
-            GeneratePartialClasses = true;
             GenerateClassMarshals = false;
             OutputInteropIncludes = true;
             MaxIndent = 80;
@@ -90,8 +89,6 @@ namespace CppSharp
 
         public bool OutputInteropIncludes;
         public bool GenerateFunctionTemplates;
-        public bool GeneratePartialClasses;
-        public bool GenerateInterfacesForMultipleInheritance;
         public bool GenerateInternalImports;
         public bool GenerateClassMarshals;
         public bool GenerateInlines;
@@ -146,7 +143,6 @@ namespace CppSharp
         public bool UnityBuild { get; set; }
 
         public string IncludePrefix;
-        public bool WriteOnlyWhenChanged;
         public Func<TranslationUnit, string> GenerateName;
         public int MaxIndent;
         public string CommentPrefix;

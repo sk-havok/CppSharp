@@ -723,8 +723,7 @@ namespace CppSharp.Generators.CSharp
                 Write("static ");
 
             // This token needs to directly precede the "class" token.
-            if (Options.GeneratePartialClasses)
-                Write("partial ");
+            Write("partial ");
 
             Write(@class.IsInterface ? "interface " : (@class.IsValueType ? "struct " : "class "));
             Write("{0}", Helpers.SafeIdentifier(@class.Name));
@@ -2515,8 +2514,12 @@ namespace CppSharp.Generators.CSharp
             out string delegateId)
         {
             var i = VTables.GetVTableIndex(method.OriginalFunction ?? method, @class);
-            WriteLine("var {0} = *(void**) ((IntPtr) __OriginalVTables[0] + {1} * {2});",
-                Helpers.SlotIdentifier, i, Context.TargetInfo.PointerWidth / 8);
+            int vtableIndex = 0;
+            if (Context.ParserOptions.IsMicrosoftAbi)
+                vtableIndex = @class.Layout.VFTables.IndexOf(@class.Layout.VFTables.Where(
+                    v => v.Layout.Components.Any(c => c.Method.OriginalPtr == method.OriginalPtr)).First());
+            WriteLine("var {0} = *(void**) ((IntPtr) __OriginalVTables[{1}] + {2} * {3});",
+                Helpers.SlotIdentifier, vtableIndex, i, Context.TargetInfo.PointerWidth / 8);
             if (method.IsDestructor && @class.IsAbstract)
             {
                 WriteLine("if ({0} != null)", Helpers.SlotIdentifier);

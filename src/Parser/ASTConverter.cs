@@ -882,10 +882,7 @@ namespace CppSharp
 
         bool CheckForDuplicates(Declaration decl)
         {
-            if (decl.OriginalPtr.ToPointer() == (void*) (0x1))
-                return false;
-
-            return !(decl is PreprocessedEntity);
+            return decl.OriginalPtr.ToPointer() != (void*)(0x1);
         }
 
         void VisitDeclaration(Declaration decl, AST.Declaration _decl)
@@ -1643,7 +1640,8 @@ namespace CppSharp
             return _decl;
         }
 
-        private void VisitClassTemplateSpecialization(ClassTemplateSpecialization decl, AST.ClassTemplateSpecialization _decl)
+        private void VisitClassTemplateSpecialization(ClassTemplateSpecialization decl,
+            AST.ClassTemplateSpecialization _decl)
         {
             VisitClass(decl, _decl);
             _decl.SpecializationKind = VisitSpecializationKind(decl.SpecializationKind);
@@ -1667,7 +1665,8 @@ namespace CppSharp
             return _arg;
         }
 
-        private AST.TemplateArgument.ArgumentKind VisitTemplateArgumentKind(TemplateArgument.ArgumentKind argumentKind)
+        private AST.TemplateArgument.ArgumentKind VisitTemplateArgumentKind(
+            TemplateArgument.ArgumentKind argumentKind)
         {
             switch (argumentKind)
             {
@@ -1692,7 +1691,8 @@ namespace CppSharp
             }
         }
 
-        private AST.TemplateSpecializationKind VisitSpecializationKind(TemplateSpecializationKind templateSpecializationKind)
+        private AST.TemplateSpecializationKind VisitSpecializationKind(
+            TemplateSpecializationKind templateSpecializationKind)
         {
             switch (templateSpecializationKind)
             {
@@ -1731,7 +1731,8 @@ namespace CppSharp
             return _decl;
         }
 
-        private AST.FunctionTemplateSpecialization VisitFunctionTemplateSpecialization(FunctionTemplateSpecialization spec)
+        private AST.FunctionTemplateSpecialization VisitFunctionTemplateSpecialization(
+            FunctionTemplateSpecialization spec)
         {
             if (FunctionTemplateSpecializations.ContainsKey(spec.__Instance))
                 return FunctionTemplateSpecializations[spec.__Instance];
@@ -1771,7 +1772,8 @@ namespace CppSharp
             return _decl;
         }
 
-        private void VisitVarTemplateSpecialization(VarTemplateSpecialization decl, AST.VarTemplateSpecialization _decl)
+        private void VisitVarTemplateSpecialization(VarTemplateSpecialization decl,
+            AST.VarTemplateSpecialization _decl)
         {
             VisitVariable(decl, _decl);
             _decl.SpecializationKind = VisitSpecializationKind(decl.SpecializationKind);

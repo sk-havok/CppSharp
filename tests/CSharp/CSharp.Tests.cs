@@ -627,6 +627,29 @@ public unsafe class CSharpTests : GeneratorTestFixture
         }
     }
 
+    [Test]
+    public void TestStackOverflowOnVirtualCall()
+    {
+        using (var hasMissingObjectOnVirtualCall = new HasMissingObjectOnVirtualCall())
+        {
+            using (var missingObjectOnVirtualCall = new MissingObjectOnVirtualCall())
+            {
+                hasMissingObjectOnVirtualCall.SetMissingObjectOnVirtualCall(missingObjectOnVirtualCall);
+                hasMissingObjectOnVirtualCall.MakeMissingObjectOnVirtualCall();
+            }
+        }
+    }
+
+    [Test]
+    public void TestAbstractImplementatonsInPrimaryAndSecondaryBases()
+    {
+        using (var implementsAbstractsFromPrimaryAndSecondary = new ImplementsAbstractsFromPrimaryAndSecondary())
+        {
+            Assert.That(implementsAbstractsFromPrimaryAndSecondary.AbstractInPrimaryBase, Is.EqualTo(101));
+            Assert.That(implementsAbstractsFromPrimaryAndSecondary.AbstractInSecondaryBase, Is.EqualTo(5));
+        }
+    }
+
     private class OverrideVirtualWithString : HasVirtualTakesReturnsProblematicTypes
     {
         public override string VirtualTakesAndReturnsString(string c)

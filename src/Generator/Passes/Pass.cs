@@ -15,11 +15,11 @@ namespace CppSharp.Passes
         public IDiagnostics Diagnostics { get { return Context.Diagnostics; } }
         public DriverOptions Options { get { return Context.Options; } }
         public ASTContext ASTContext { get { return Context.ASTContext; } }
-        public TypeMapDatabase TypeDatabase { get { return Context.TypeMaps; } }
+        public TypeMapDatabase TypeMaps { get { return Context.TypeMaps; } }
 
         public bool ClearVisitedDeclarations = false;
 
-        public virtual bool VisitLibrary(ASTContext context)
+        public virtual bool VisitASTContext(ASTContext context)
         {
             foreach (var unit in context.TranslationUnits)
                 VisitTranslationUnit(unit);

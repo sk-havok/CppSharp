@@ -322,7 +322,7 @@ namespace CppSharp
                 }
             }
 
-            if (Options.GenerateInterfacesForMultipleInheritance)
+            if (Options.IsCSharpGenerator)
             {
                 TranslationUnitPasses.AddPass(new MultipleInheritancePass());
                 TranslationUnitPasses.AddPass(new ParamTypeToInterfacePass());
@@ -497,7 +497,7 @@ namespace CppSharp
                 return;
             }
 
-            new CleanUnitPass { Context = driver.Context }.VisitLibrary(driver.Context.ASTContext);
+            new CleanUnitPass { Context = driver.Context }.VisitASTContext(driver.Context.ASTContext);
             options.Modules.RemoveAll(m => m != options.SystemModule && !m.Units.GetGenerated().Any());
 
             if (!options.Quiet)

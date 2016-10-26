@@ -144,6 +144,8 @@ public:
     virtual int parent();
     virtual int parent() const;
 
+    virtual const Foo& covariant() = 0;
+
 protected:
     AbstractProprietor();
     AbstractProprietor(int i);
@@ -159,6 +161,8 @@ public:
     virtual void setValue(int value);
 
     virtual long prop();
+
+    virtual const Baz& covariant();
 
     Bar::Items items() const;
     void setItems(const Bar::Items& value);
@@ -1062,4 +1066,49 @@ public:
     ~HasSecondaryBaseWithAbstractWithDefaultArg();
     virtual void abstract(const Foo& foo = Foo());
     virtual void abstractWithNoDefaultArg(const Foo& foo = Foo());
+};
+
+class DLL_API MissingObjectOnVirtualCallSecondaryBase
+{
+public:
+    MissingObjectOnVirtualCallSecondaryBase();
+    virtual void f();
+};
+
+class DLL_API MissingObjectOnVirtualCall : public HasVirtualDtor1, public MissingObjectOnVirtualCallSecondaryBase
+{
+public:
+    MissingObjectOnVirtualCall();
+    void f();
+};
+
+class DLL_API HasMissingObjectOnVirtualCall
+{
+public:
+    HasMissingObjectOnVirtualCall();
+    void makeMissingObjectOnVirtualCall();
+    void setMissingObjectOnVirtualCall(MissingObjectOnVirtualCall* value);
+private:
+    MissingObjectOnVirtualCall* stackOverflowOnVirtualCall;
+};
+
+class DLL_API AbstractPrimaryBase
+{
+public:
+    virtual int abstractInPrimaryBase() = 0;
+};
+
+class DLL_API AbstractSecondaryBase
+{
+public:
+    virtual int abstractInSecondaryBase() = 0;
+};
+
+class DLL_API ImplementsAbstractsFromPrimaryAndSecondary : public AbstractPrimaryBase, public AbstractSecondaryBase
+{
+public:
+    ImplementsAbstractsFromPrimaryAndSecondary();
+    ~ImplementsAbstractsFromPrimaryAndSecondary();
+    virtual int abstractInPrimaryBase();
+    virtual int abstractInSecondaryBase();
 };
