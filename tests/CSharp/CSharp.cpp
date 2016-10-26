@@ -1223,6 +1223,7 @@ void HasMissingObjectOnVirtualCall::setMissingObjectOnVirtualCall(MissingObjectO
 }
 
 ImplementsAbstractsFromPrimaryAndSecondary::ImplementsAbstractsFromPrimaryAndSecondary()
+    : m_first(100), m_second(200), m_third(300)
 {
 }
 
@@ -1232,10 +1233,10 @@ ImplementsAbstractsFromPrimaryAndSecondary::~ImplementsAbstractsFromPrimaryAndSe
 
 int ImplementsAbstractsFromPrimaryAndSecondary::abstractInPrimaryBase()
 {
-    return 101;
+    return m_second + 1;
 }
 
 int ImplementsAbstractsFromPrimaryAndSecondary::abstractInSecondaryBase()
 {
-    return 5;
+    return m_second + 2;
 }

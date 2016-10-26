@@ -1111,4 +1111,8 @@ public:
     ~ImplementsAbstractsFromPrimaryAndSecondary();
     virtual int abstractInPrimaryBase();
     virtual int abstractInSecondaryBase();
+
+    int m_first;
+    int m_second;
+    int m_third;
 };
